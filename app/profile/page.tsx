@@ -12,6 +12,68 @@ import Link from "next/link";
 import Swal from "sweetalert2";
 import SavedBlogs from "../components/SavedBlogs";
 import { motion } from "framer-motion";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db } from "../firebase/firebaseConfig";
+
+// Reusable BlogCard for My Blogs and Archived Blogs
+const BlogCard = ({ blog }: { blog: any }) => (
+  <Link href={`/blogfeed/${blog.id}`} className="block group">
+    <div className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow p-4 border border-gray-200">
+      <h3 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors mb-2 line-clamp-2">
+        {blog.title}
+      </h3>
+      <p className="text-sm text-gray-600 line-clamp-2 mb-3">
+        {blog.content?.replace(/<[^>]*>/g, '').slice(0, 100)}...
+      </p>
+      <div className="flex items-center text-xs text-gray-500">
+        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        {blog.createdAt ? (blog.createdAt.seconds ? new Date(blog.createdAt.seconds * 1000).toLocaleDateString() : new Date(blog.createdAt).toLocaleDateString()) : 'Date not available'}
+      </div>
+    </div>
+  </Link>
+);
+
+const MyBlogs = ({ userId }: { userId: string }) => {
+  const [blogs, setBlogs] = useState<any[]>([]);
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      const q = query(collection(db, "blogs"), where("userId", "==", userId), where("status", "not-in", ["archived", "deleted"]));
+      const querySnapshot = await getDocs(q);
+      const myBlogs: any[] = [];
+      querySnapshot.forEach((doc) => myBlogs.push({ ...doc.data(), id: doc.id }));
+      setBlogs(myBlogs);
+    })();
+  }, [userId]);
+  if (!blogs.length) return <p className="text-gray-500">No blogs found.</p>;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+      {blogs.map(blog => <BlogCard key={blog.id} blog={blog} />)}
+    </div>
+  );
+};
+
+const ArchivedBlogs = ({ userId }: { userId: string }) => {
+  const [blogs, setBlogs] = useState<any[]>([]);
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      const q = query(collection(db, "blogs"), where("userId", "==", userId), where("status", "==", "archived"));
+      const querySnapshot = await getDocs(q);
+      const archived: any[] = [];
+      querySnapshot.forEach((doc) => archived.push({ ...doc.data(), id: doc.id }));
+      setBlogs(archived);
+    })();
+  }, [userId]);
+  if (!blogs.length) return <p className="text-gray-500">No archived blogs.</p>;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+      {blogs.map(blog => <BlogCard key={blog.id} blog={blog} />)}
+    </div>
+  );
+};
 
 const ProfilePage: React.FC = () => {
   const user = auth.currentUser;
@@ -20,7 +82,7 @@ const ProfilePage: React.FC = () => {
   const [formUsername, setFormUsername] = useState<string>(user?.displayName || ""); // For form input
   const [currentPassword, setCurrentPassword] = useState<string>("");
   const [newPassword, setNewPassword] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"profile" | "saved">("profile");
+  const [activeTab, setActiveTab] = useState<'profile' | 'saved' | 'myblogs' | 'archived'>("profile");
 
   const saveChanges = async () => {
     if (!formUsername) {
@@ -136,7 +198,33 @@ const ProfilePage: React.FC = () => {
           >
             <div className="flex items-center justify-center space-x-2">
               <FaBookmark className="w-4 h-4" />
-              <span>Saved Posts</span>
+              <span>Saved Blogs</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab("myblogs")}
+            className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all duration-300 ${
+              activeTab === "myblogs"
+                ? "bg-green-500 text-white shadow-lg shadow-green-500/20"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <span className="font-bold">📝</span>
+              <span>My Blogs</span>
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab("archived")}
+            className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all duration-300 ${
+              activeTab === "archived"
+                ? "bg-yellow-500 text-white shadow-lg shadow-yellow-500/20"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <span className="font-bold">📦</span>
+              <span>Archived</span>
             </div>
           </button>
         </motion.div>
@@ -148,7 +236,7 @@ const ProfilePage: React.FC = () => {
           transition={{ delay: 0.1 }}
           className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100"
         >
-          {activeTab === "profile" ? (
+          {activeTab === "profile" && (
             <div className="p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-8">Personal Information</h2>
               <div className="space-y-8">
@@ -238,10 +326,15 @@ const ProfilePage: React.FC = () => {
                 </motion.div>
               </div>
             </div>
-          ) : (
-            <div className="p-8">
-              <SavedBlogs />
-            </div>
+          )}
+          {activeTab === "saved" && (
+            <div className="p-8"><SavedBlogs /></div>
+          )}
+          {activeTab === "myblogs" && (
+            <div className="p-8"><MyBlogs userId={user?.uid} /></div>
+          )}
+          {activeTab === "archived" && (
+            <div className="p-8"><ArchivedBlogs userId={user?.uid} /></div>
           )}
         </motion.div>
       </div>

@@ -12,6 +12,8 @@ import { FaUserCircle } from "react-icons/fa";
 import Swal from "sweetalert2";
 import Link from "next/link";
 import Image from "next/image";
+import { storage } from "../firebase/firebaseConfig";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // Add error boundary at the top of the file
 class EditorErrorBoundary extends React.Component<
@@ -58,6 +60,10 @@ const TextEditor = () => {
   const [user, setUser] = useState<any>(null); // State for authenticated user
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true); // State for sidebar visibility
   const [monthlyPostCount, setMonthlyPostCount] = useState<number>(0); // State for monthly post count
+  const [imageFile, setImageFile] = useState<File | null>(null); // State for image file
+  const [imageUrl, setImageUrl] = useState<string>(""); // State for uploaded image URL
+  const [imageLink, setImageLink] = useState<string>(""); // State for image URL input
+  const [imageError, setImageError] = useState<string>(""); // State for image error
 
   const editorRef = useRef<HTMLDivElement | null>(null); // Ref for the Quill editor container
   const quillRef = useRef<Quill | null>(null); // Ref to hold the Quill instance
@@ -92,7 +98,7 @@ const TextEditor = () => {
     }
   }, [router]);
 
-  const categories = ["Technology", "Health", "Lifestyle", "Business", "Travel", "Food"];
+  const categories = ["General", "Technology", "Health", "Lifestyle", "Business", "Travel", "Food"];
 
   useEffect(() => {
     if (editorRef.current && !quillRef.current) {
@@ -279,6 +285,28 @@ const TextEditor = () => {
       };
     }
 
+    if (!imageFile && !imageLink) {
+      return {
+        isValid: false,
+        error: {
+          title: 'Image Required',
+          text: 'Please upload an image or provide a direct image URL.',
+          icon: 'warning'
+        }
+      };
+    }
+
+    if (imageLink && !isValidImageUrl(imageLink)) {
+      return {
+        isValid: false,
+        error: {
+          title: 'Invalid Image URL',
+          text: 'Please provide a valid direct image URL (must end with .jpg, .png, etc.)',
+          icon: 'warning'
+        }
+      };
+    }
+
     return { isValid: true };
   };
 
@@ -316,6 +344,17 @@ const TextEditor = () => {
       // Get the content directly from Quill
       const content = quillRef.current?.root.innerHTML || '';
 
+      let finalImageUrl = "";
+      if (imageFile) {
+        const imgRef = storageRef(storage, `blog-images/${Date.now()}_${imageFile.name}`);
+        await uploadBytes(imgRef, imageFile);
+        finalImageUrl = await getDownloadURL(imgRef);
+        setImageUrl(finalImageUrl);
+      } else if (imageLink) {
+        finalImageUrl = imageLink;
+        setImageUrl(imageLink);
+      }
+
       // Save to Firestore with all fields
       const docRef = await addDoc(collection(db, "blogs"), {
         title: title.trim(),
@@ -327,6 +366,8 @@ const TextEditor = () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         status: 'published',
+        coverImage: finalImageUrl,
+        type: 'manual', // <-- Add this line
       });
 
       // Show success message
@@ -365,6 +406,10 @@ const TextEditor = () => {
     setTitle('');
     setMetaDescription('');
     setCategory('');
+    setImageFile(null);
+    setImageLink('');
+    setImageUrl('');
+    setImageError('');
     if (quillRef.current) {
       quillRef.current.root.innerHTML = '';
     }
@@ -383,6 +428,32 @@ const TextEditor = () => {
     } catch (error) {
       console.error("Error logging out:", error);
       alert("An error occurred while logging out. Please try again.");
+    }
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setImageFile(e.target.files[0]);
+      setImageLink("");
+      setImageError("");
+    }
+  };
+
+  const handleImageLinkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImageLink(e.target.value);
+    if (e.target.value) setImageFile(null);
+    setImageError("");
+  };
+
+  const isValidImageUrl = (url: string) => {
+    try {
+      const parsed = new URL(url);
+      return (
+        (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+        /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(parsed.pathname)
+      );
+    } catch {
+      return false;
     }
   };
 
@@ -488,6 +559,42 @@ const TextEditor = () => {
         <div className="max-w-5xl mx-auto px-8 py-12">
           <div className="bg-white rounded-xl shadow-sm p-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-8">Create New Blog</h1>
+
+            {/* Blog Image Upload/URL */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Blog Cover Image <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageChange}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all mb-2"
+                disabled={!!imageLink}
+              />
+              <div className="flex items-center gap-4 mb-2">
+                <span className="text-gray-500 text-sm">or</span>
+                <input
+                  type="url"
+                  value={imageLink}
+                  onChange={handleImageLinkChange}
+                  placeholder="Paste direct image URL (https://...)"
+                  className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  disabled={!!imageFile}
+                />
+              </div>
+              {(imageFile || imageLink) && (
+                <div className="mt-2">
+                  <img
+                    src={imageFile ? URL.createObjectURL(imageFile) : imageLink}
+                    alt="Preview"
+                    className="h-32 rounded-lg object-cover border"
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              )}
+              {imageError && <p className="text-red-500 mt-2">{imageError}</p>}
+            </div>
 
             {/* Blog Title */}
             <div className="mb-6">

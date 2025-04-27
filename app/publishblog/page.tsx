@@ -2,30 +2,30 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { FaUserCircle } from "react-icons/fa";
 import {
   Box,
   Typography,
   Button,
   Paper,
   Container,
-  Chip,
-  IconButton,
   Avatar,
   Card,
   Fade,
-  ButtonGroup,
-  Tooltip,
 } from "@mui/material";
-import HomeIcon from "@mui/icons-material/Home";
-import ShareIcon from "@mui/icons-material/Share";
-import BookmarkAddIcon from "@mui/icons-material/BookmarkAdd";
-import PrintIcon from "@mui/icons-material/Print";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import { db } from "../firebase/firebaseConfig";
+import { doc, getDoc } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 const PublishedBlog: React.FC = () => {
   const router = useRouter();
   const [fadeIn, setFadeIn] = useState(false);
   const [publishedBlog, setPublishedBlog] = useState<string | null>(null);
+  const [blogTitle, setBlogTitle] = useState<string | null>(null);
+  const [coverImage, setCoverImage] = useState<string | null>(null);
+  const [authorName, setAuthorName] = useState<string | null>(null);
 
   const blogMetadata = {
     publishDate: new Date().toLocaleDateString("en-US", {
@@ -34,23 +34,19 @@ const PublishedBlog: React.FC = () => {
       day: "numeric",
     }),
     readTime: "5 min read",
-    author: "AI Assistant",
-    avatar: "https://ui-avatars.com/api/?name=AI&background=0D8ABC&color=fff",
   };
 
   useEffect(() => {
     setFadeIn(true);
     const blogFromSession = sessionStorage.getItem("publishedBlog");
     setPublishedBlog(blogFromSession);
+    setBlogTitle(sessionStorage.getItem("publishedBlogTitle"));
+    setCoverImage(sessionStorage.getItem("blogImage"));
+    // Fetch user name from Firebase Auth
+    const auth = getAuth();
+    const user = auth.currentUser;
+    setAuthorName(user?.displayName || user?.email || "User");
   }, []);
-
-  // Example: In your blog editor page
-  const handlePublish = () => {
-    // Replace `formattedBlogHtml` with your actual blog HTML string variable
-    const formattedBlogHtml = "<h1>Sample Blog Title</h1><p>This is a sample blog post content.</p>"; // Example HTML string
-    sessionStorage.setItem("publishedBlog", formattedBlogHtml);
-    router.push("/publishblog");
-  };
 
   if (!publishedBlog) {
     return (
@@ -84,68 +80,114 @@ const PublishedBlog: React.FC = () => {
 
   return (
     <Fade in={fadeIn} timeout={800}>
-      <Container maxWidth="md" sx={{ py: 5 }}>
-        <Paper elevation={4} sx={{ p: 4, borderRadius: 4 }}>
-          {/* Blog Metadata */}
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-            <img
-              src={blogMetadata.avatar}
-              alt="Author"
-              style={{ width: 48, height: 48, borderRadius: '50%', marginRight: 16 }}
-            />
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
-                {blogMetadata.author}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {blogMetadata.publishDate} &nbsp;•&nbsp; {blogMetadata.readTime}
-              </Typography>
-            </Box>
-          </Box>
-          {/* Blog Content */}
-          <Box
-            sx={{
-              mt: 3,
-              '& h1': { fontSize: '2.2rem', fontWeight: 700, mb: 2 },
-              '& h2': { fontSize: '1.6rem', fontWeight: 600, mb: 2 },
-              '& h3': { fontSize: '1.3rem', fontWeight: 500, mb: 1.5 },
-              '& p': { fontSize: '1.1rem', lineHeight: 1.8, mb: 2.5, color: '#4b5563' },
-              '& a': {
-                color: '#2563eb',
-                textDecoration: 'none',
-                borderBottom: '1px solid rgba(37, 99, 235, 0.3)',
-                '&:hover': { color: '#1e40af', borderBottomColor: '#1e40af' }
-              },
-              '& ul, & ol': { pl: 4, mb: 3 },
-              '& strong': { fontWeight: 600, color: '#334155' },
-              '& em': { fontStyle: 'italic' },
-              '& .references-section': {
-                mt: 6,
-                pt: 3,
-                borderTop: '1px solid #e5e7eb',
-                fontSize: '0.95rem',
-                color: '#64748b'
-              },
-              '& blockquote': {
-                borderLeft: '4px solid #e5e7eb',
-                pl: 3,
-                py: 1,
-                my: 3,
-                color: '#64748b',
-                fontStyle: 'italic'
-              }
+      <div className="blog-page">
+        {/* Navbar with User Icon and Name */}
+        <div className="navbar-container">
+          <nav className="flex justify-between items-center px-6 py-4 border-b bg-white">
+            <div className="text-xl font-bold text-green-700">BLOG FUSION</div>
+            <ul className="flex space-x-6">
+              <li>
+                <Link href="/" className="hover:text-green-600">
+                  Home
+                </Link>
+              </li>
+              <li>
+                <Link href="/about" className="hover:text-green-600">
+                  About
+                </Link>
+              </li>
+              <li>
+                <Link href="/blogfeed" className="hover:text-green-600">
+                  Blog Feed
+                </Link>
+              </li>
+            </ul>
+            <div className="flex items-center space-x-4">
+              <FaUserCircle className="text-gray-500 w-8 h-8" />
+              <span className="text-gray-500">{authorName}</span>
+            </div>
+          </nav>
+        </div>
+        {/* Blog Content */}
+        <div className="blog-content-container">
+          <div
+            className="blog-detail"
+            style={{
+              maxWidth: 950,
+              margin: "0 auto",
+              width: "100%",
+              background: "white",
+              borderRadius: 12,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+              padding: 32,
             }}
-            dangerouslySetInnerHTML={{ __html: publishedBlog || '' }}
-          />
-          <Button
-            sx={{ mt: 4 }}
-            variant="contained"
-            onClick={() => router.push('/')}
           >
-            Generate New Blog
-          </Button>
-        </Paper>
-      </Container>
+            {coverImage && (
+              <img
+                src={coverImage}
+                alt="Blog Cover"
+                className="blog-image"
+                style={{
+                  width: "100%",
+                  height: 400,
+                  objectFit: "cover",
+                  borderRadius: 8,
+                  marginBottom: 24,
+                }}
+              />
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+              <div style={{
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #22c55e 60%, #16a34a 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontWeight: 700,
+                fontSize: 22,
+                fontFamily: 'inherit',
+                textTransform: 'uppercase',
+              }}>
+                {authorName ? authorName[0] : 'U'}
+              </div>
+              <span style={{ fontWeight: 600, color: '#16a34a', fontSize: 18 }}>{authorName}</span>
+              <span className="blog-date" style={{ color: '#64748b', fontSize: 15, marginLeft: 12 }}>
+                {blogMetadata.publishDate} &nbsp;•&nbsp; {blogMetadata.readTime}
+              </span>
+            </div>
+            <h1 className="blog-title" style={{ fontSize: 38, fontWeight: 800, color: '#22223b', marginBottom: 24, marginTop: 0 }}>
+              {blogTitle || "Untitled Blog"}
+            </h1>
+            <div
+              className="blog-content"
+              style={{ fontSize: "1.1rem", lineHeight: 1.8, color: "#374151", marginTop: 24 }}
+              dangerouslySetInnerHTML={{ __html: publishedBlog || "" }}
+            />
+          </div>
+        </div>
+        {/* Footer Section */}
+        <footer className="footer bg-white border-t mt-12">
+          <div className="text-center py-6">
+            <p className="text-sm text-gray-500">
+              &copy; 2025 Blog Fusion. All Rights Reserved.
+            </p>
+            <div className="flex justify-center space-x-4 mt-4">
+              <Link href="#" className="hover:text-green-600 text-gray-600">
+                Privacy Policy
+              </Link>
+              <Link href="#" className="hover:text-green-600 text-gray-600">
+                Terms of Service
+              </Link>
+              <Link href="#" className="hover:text-green-600 text-gray-600">
+                Contact Us
+              </Link>
+            </div>
+          </div>
+        </footer>
+      </div>
     </Fade>
   );
 };

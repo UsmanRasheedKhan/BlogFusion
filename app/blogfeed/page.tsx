@@ -19,6 +19,43 @@ const stripHtmlTags = (content: string) => {
   return div.textContent || div.innerText || "";
 };
 
+// Custom Navbar for BlogFeed, styled like homepage, with 'Write Blog' button
+const BlogFeedNavbar = ({ user }: { user: any }) => {
+  const router = useRouter();
+  return (
+    <nav className="fixed top-0 left-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-gray-200/50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          <Link href="/" className="flex items-center space-x-2">
+            <span className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-500">
+              BLOG FUSION
+            </span>
+          </Link>
+          <div className="hidden md:flex items-center space-x-8">
+            <Link href="/" className="text-gray-600 hover:text-gray-900 font-medium">Home</Link>
+            <Link href="/#about" className="text-gray-600 hover:text-gray-900 font-medium">About</Link>
+            <Link href="/#services" className="text-gray-600 hover:text-gray-900 font-medium">Services</Link>
+            <Link href="/blogfeed" className="text-gray-900 font-bold">Blog Feed</Link>
+            <Link href="/#contact" className="text-gray-600 hover:text-gray-900 font-medium">Contact</Link>
+          </div>
+          <div className="flex items-center space-x-4">
+            <Link href="/text-editor" className="px-4 py-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors font-medium">
+              Write Blog
+            </Link>
+            {user ? (
+              <Link href="/profile" className="w-10 h-10 rounded-full bg-gradient-to-r from-green-400 to-green-600 flex items-center justify-center text-white text-lg font-semibold">
+                {user.displayName?.[0]?.toUpperCase() || 'U'}
+              </Link>
+            ) : (
+              <Link href="/login" className="px-4 py-2 text-gray-600 hover:text-gray-900 transition-colors">Login</Link>
+            )}
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+};
+
 const BlogFeed = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -40,25 +77,20 @@ const BlogFeed = () => {
         
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Debug logging
-          console.log(`Blog ${doc.id} raw comments:`, data.comments);
-          
+          // Skip archived blogs
+          if (data.archived === true) return;
           const blog = {
             id: doc.id,
             title: data.title,
             content: data.content,
             likes: Array.isArray(data.likes) ? data.likes : [],
             comments: Array.isArray(data.comments) ? data.comments : [],
-            shares: Array.isArray(data.shares) ? data.shares : []
+            shares: Array.isArray(data.shares) ? data.shares : [],
+            coverImage: data.coverImage || null,
+            type: data.type || null,
           };
-          
-          // Debug logging
-          console.log(`Blog ${doc.id} processed comments:`, blog.comments);
-          console.log(`Blog ${doc.id} comments length:`, blog.comments.length);
-          
           blogsData.push(blog);
         });
-
         setBlogs(blogsData);
       } catch (error) {
         console.error("Error fetching blogs:", error);
@@ -136,40 +168,8 @@ const BlogFeed = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
-      {/* Enhanced Navigation */}
-      <nav className="bg-white shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex-shrink-0">
-              <span className="text-2xl font-bold text-black">
-                BLOG FUSION
-              </span>
-            </div>
-            <div className="hidden md:block">
-              <div className="ml-10 flex items-center space-x-8">
-                <Link href="/" className="text-gray-700 hover:text-black transition-colors duration-200">
-                  Home
-                </Link>
-                <Link href="/#about" className="text-gray-700 hover:text-black transition-colors duration-200">
-                  About
-                </Link>
-                <Link href="/#services" className="text-gray-700 hover:text-black transition-colors duration-200">
-                  Services
-                </Link>
-                <Link href="/blogfeed" className="text-black font-medium">
-                  Blog Feed
-                </Link>
-                <Link href="/#contact" className="px-4 py-2 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors duration-200">
-                  Contact
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      {/* Enhanced Search Bar */}
-      <div className="max-w-4xl mx-auto pt-8 px-4">
+      <BlogFeedNavbar user={user} />
+      <div className="max-w-4xl mx-auto pt-24 px-4">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -255,7 +255,7 @@ interface Blog {
   id: string;
   title: string;
   content: string;
-  likes: string[];      // Array of user IDs who liked
+  likes: string[];
   comments: {
     id: string;
     userId: string;
@@ -263,7 +263,9 @@ interface Blog {
     createdAt: any;
     userDisplayName: string;
   }[];
-  shares: string[];     // Array of user IDs who shared
+  shares: string[];
+  coverImage?: string | null;
+  type?: string | null;
 }
 
 // Add helper function
@@ -272,6 +274,13 @@ const extractFirstImage = (content: string): string | null => {
   const doc = parser.parseFromString(content, 'text/html');
   const firstImage = doc.querySelector('img');
   return firstImage ? firstImage.src : null;
+};
+
+// Add helper function to get blog image
+const getBlogImage = (blog: Blog): string | null => {
+  if ((blog as any).coverImage) return (blog as any).coverImage;
+  if (blog.content) return extractFirstImage(blog.content);
+  return null;
 };
 
 // Update BlogCard component
@@ -392,25 +401,23 @@ const BlogCard = ({ blog, setBlogs }: { blog: Blog; setBlogs: React.Dispatch<Rea
       className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden"
     >
       {/* Add Image Container */}
-      {blog.content && (
-        <div className="relative w-full h-48 overflow-hidden">
-          {extractFirstImage(blog.content) ? (
-            <img
-              src={extractFirstImage(blog.content) || "/default-image.png"}
-              alt={blog.title}
-              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.style.display = 'none';
-              }}
-            />
-          ) : (
-            <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-              <span className="text-gray-400">No image available</span>
-            </div>
-          )}
-        </div>
-      )}
+      <div className="relative w-full h-48 overflow-hidden">
+        {getBlogImage(blog) ? (
+          <img
+            src={getBlogImage(blog) || "/default-image.png"}
+            alt={blog.title}
+            className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+            <span className="text-gray-400">No image available</span>
+          </div>
+        )}
+      </div>
 
       <div className="p-6">
         <h3 className="text-xl font-semibold text-gray-900 mb-3 line-clamp-2">

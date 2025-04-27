@@ -4,6 +4,7 @@ const nextConfig = {
     domains: [
       'firebasestorage.googleapis.com', // For Firebase Storage
       'lh3.googleusercontent.com',      // For Google Auth photos
+      'd.newsweek.com',                 // Added for Newsweek images
     ],
     remotePatterns: [
       {
@@ -14,6 +15,11 @@ const nextConfig = {
       {
         protocol: 'https',
         hostname: 'lh3.googleusercontent.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'd.newsweek.com',
         pathname: '/**',
       }
     ],

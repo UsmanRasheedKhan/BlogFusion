@@ -13,6 +13,20 @@ const SavedBlogsPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
 
+  const extractFirstImage = (content: string): string | null => {
+    if (!content) return null;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(content, 'text/html');
+    const firstImage = doc.querySelector('img');
+    return firstImage ? firstImage.src : null;
+  };
+
+  const getBlogImage = (blog: any): string | null => {
+    if (blog.coverImage) return blog.coverImage;
+    if (blog.content) return extractFirstImage(blog.content);
+    return null;
+  };
+
   useEffect(() => {
     const fetchSavedBlogs = async () => {
       try {
@@ -129,10 +143,10 @@ const SavedBlogsPage = () => {
                   className="block group bg-background-main rounded-xl shadow-sm hover:shadow-md transition-all duration-300"
                 >
                   <div className="overflow-hidden">
-                    {blog.coverImage && (
+                    {getBlogImage(blog) && (
                       <div className="h-48 overflow-hidden">
                         <img 
-                          src={blog.coverImage} 
+                          src={getBlogImage(blog) as string} 
                           alt={blog.title}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         />

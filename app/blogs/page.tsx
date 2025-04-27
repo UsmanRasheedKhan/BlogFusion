@@ -19,6 +19,7 @@ import Link from "next/link"; // Import Link for navigation
 import Image from "next/image"; // Import Next.js Image for optimized images
 import { motion } from "framer-motion";
 import { v4 as uuidv4 } from "uuid";
+import Swal from "sweetalert2";
 import "./Blogs.css"; // Import the CSS file
 
 // Add these interfaces at the top of your file
@@ -38,6 +39,7 @@ interface Blog {
     createdAt: any;
     userDisplayName?: string;
   }[];
+  status?: string; // Added status field
 }
 
 const extractFirstImage = (content: string): string | null => {
@@ -45,6 +47,12 @@ const extractFirstImage = (content: string): string | null => {
   const doc = parser.parseFromString(content, 'text/html');
   const firstImage = doc.querySelector('img');
   return firstImage ? firstImage.src : null;
+};
+
+const getBlogImage = (blog: Blog): string | null => {
+  if ((blog as any).coverImage) return (blog as any).coverImage;
+  if (blog.content) return extractFirstImage(blog.content);
+  return null;
 };
 
 const Blogs = () => {
@@ -212,6 +220,19 @@ const Blogs = () => {
     }
   };
 
+  const deleteBlog = async (blogId: string) => {
+    const blogRef = doc(db, 'blogs', blogId);
+    await updateDoc(blogRef, { status: 'deleted' });
+  };
+
+  const archiveBlog = async (blogId: string) => {
+    const blogRef = doc(db, 'blogs', blogId);
+    await updateDoc(blogRef, { status: 'archived' });
+  };
+
+  // Only show blogs that are not archived
+  const visibleBlogs = blogs.filter(blog => blog.status !== 'archived');
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Enhanced Navbar */}
@@ -298,7 +319,7 @@ const Blogs = () => {
 
         {/* Blog Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {blogs.length === 0 ? (
+          {visibleBlogs.length === 0 ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -320,7 +341,7 @@ const Blogs = () => {
               </div>
             </motion.div>
           ) : (
-            blogs.map((blog, index) => (
+            visibleBlogs.map((blog, index) => (
               <motion.div
                 key={blog.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -329,37 +350,33 @@ const Blogs = () => {
                 className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 overflow-hidden flex flex-col h-full"
               >
                 {/* Add Image Section */}
-                {blog.content && (
-                  <div className="relative w-full h-48 overflow-hidden">
-                    {extractFirstImage(blog.content) ? (
-                      <Image
-                        src={extractFirstImage(blog.content) || "/default-image.png"}
-                        alt={blog.title}
-                        fill
-                        className="object-cover hover:scale-105 transition-transform duration-300"
-                        onError={(e: any) => {
-                          e.target.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                        <svg 
-                          className="w-12 h-12 text-gray-300" 
-                          fill="none" 
-                          stroke="currentColor" 
-                          viewBox="0 0 24 24"
-                        >
-                          <path 
-                            strokeLinecap="round" 
-                            strokeLinejoin="round" 
-                            strokeWidth="2" 
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" 
-                          />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div className="relative w-full h-48 overflow-hidden">
+                  {getBlogImage(blog) ? (
+                    <img
+                      src={getBlogImage(blog) || "/default-image.png"}
+                      alt={blog.title}
+                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                      style={{ height: '100%', width: '100%' }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                      <svg 
+                        className="w-12 h-12 text-gray-300" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          strokeWidth="2" 
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" 
+                        />
+                      </svg>
+                    </div>
+                  )}
+                </div>
 
                 <div className="p-6 flex flex-col flex-grow">
                   <div className="flex-grow">
@@ -375,7 +392,7 @@ const Blogs = () => {
 
                     {/* Add Read More Button */}
                     <button
-                      onClick={() => handleBlogClick(blog.id)}
+                      onClick={() => router.push(`/blogfeed/${blog.id}`)}
                       className="inline-flex items-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors mb-4"
                     >
                       Read More
@@ -389,10 +406,68 @@ const Blogs = () => {
                           strokeLinecap="round" 
                           strokeLinejoin="round" 
                           strokeWidth="2" 
-                          d="M14 5l7 7m0 0l-7 7m7-7H3"
+                          d="M14 5l7 7m0 0l-7 7m7-7H3" 
                         />
                       </svg>
                     </button>
+
+                    {/* Delete and Archive Buttons (only for owner) */}
+                    {user && blog.userId === user.uid && (
+                      <div className="flex space-x-2 mt-2">
+                        <button
+                          onClick={async () => {
+                            const result = await Swal.fire({
+                              title: 'Delete Blog',
+                              text: 'Are you sure you want to delete this blog? This action cannot be undone.',
+                              icon: 'warning',
+                              showCancelButton: true,
+                              confirmButtonText: 'Yes, I am sure',
+                              cancelButtonText: 'No',
+                              confirmButtonColor: '#d33',
+                              cancelButtonColor: '#3085d6',
+                            });
+                            if (result.isConfirmed) {
+                              try {
+                                await deleteBlog(blog.id);
+                                setBlogs(blogs.filter(b => b.id !== blog.id));
+                              } catch (err) {
+                                Swal.fire('Error', 'Failed to delete blog.', 'error');
+                              }
+                            }
+                          }}
+                          className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm"
+                          title="Delete Blog"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const result = await Swal.fire({
+                              title: 'Archive Blog',
+                              text: 'Are you sure you want to archive this blog? You can restore it later from the archive.',
+                              icon: 'warning',
+                              showCancelButton: true,
+                              confirmButtonText: 'Yes, I am sure',
+                              cancelButtonText: 'No',
+                              confirmButtonColor: '#f59e42',
+                              cancelButtonColor: '#3085d6',
+                            });
+                            if (result.isConfirmed) {
+                              try {
+                                await archiveBlog(blog.id);
+                                setBlogs(blogs.map(b => b.id === blog.id ? { ...b, status: 'archived' } : b));
+                              } catch (err) {
+                                Swal.fire('Error', 'Failed to archive blog.', 'error');
+                              }
+                            }
+                          }}
+                          className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
+                          title="Archive Blog"
+                        >
+                          Archive
+                        </button>
+                      </div>
+                    )}
                   </div>
                   
                   <div className="pt-4 mt-auto border-t border-gray-100">

@@ -8,6 +8,20 @@ const SavedBlogs = () => {
   const [savedBlogs, setSavedBlogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const extractFirstImage = (content: string): string | null => {
+    if (!content) return null;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(content, 'text/html');
+    const firstImage = doc.querySelector('img');
+    return firstImage ? firstImage.src : null;
+  };
+
+  const getBlogImage = (blog: any): string | null => {
+    if (blog.coverImage) return blog.coverImage;
+    if (blog.content) return extractFirstImage(blog.content);
+    return null;
+  };
+
   useEffect(() => {
     const fetchSavedBlogs = async () => {
       try {
@@ -84,6 +98,15 @@ const SavedBlogs = () => {
               className="block group"
             >
               <div className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow p-4 border border-gray-200">
+                {getBlogImage(blog) && (
+                  <div className="h-40 overflow-hidden mb-2 rounded-md">
+                    <img
+                      src={getBlogImage(blog) as string}
+                      alt={blog.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                  </div>
+                )}
                 <h3 className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors mb-2 line-clamp-2">
                   {blog.title}
                 </h3>

@@ -313,12 +313,12 @@ const Homepage: React.FC = () => {
   };
 
   const toggleLoginForm = () => {
+    setIsLoginFormVisible((prev) => !prev);
+    setIsSignupFormVisible(false);
     setEmail("");
     setPassword("");
     setName("");
     setError(null);
-    setIsLoginFormVisible(!isLoginFormVisible);
-    setIsSignupFormVisible(false);
   };
 
   const handleLogout = async () => {
@@ -333,7 +333,7 @@ const Homepage: React.FC = () => {
   };
 
   const toggleSignupForm = () => {
-    setIsSignupFormVisible(!isSignupFormVisible);
+    setIsSignupFormVisible((prev) => !prev);
     setIsLoginFormVisible(false);
     setEmail("");
     setPassword("");
@@ -669,7 +669,8 @@ const Homepage: React.FC = () => {
     }
   
     try {
-      await Swal.fire({
+      // Show the modal, but do NOT await it
+      Swal.fire({
         title: 'Processing...',
         html: `
           <div class="space-y-4">
@@ -680,8 +681,10 @@ const Homepage: React.FC = () => {
         allowOutsideClick: false,
         showConfirmButton: false
       });
-  
-      const response = await fetch('/api/create-checkout-session', {
+
+      // Start both the timer and the API request in parallel
+      const timerPromise = new Promise((resolve) => setTimeout(resolve, 3000));
+      const apiPromise = fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -689,28 +692,66 @@ const Homepage: React.FC = () => {
           userId: currentUser.uid,
           userEmail: currentUser.email
         })
-      });
-  
-      const data = await response.json();
-  
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create checkout session');
+      }).then(async (response) => {
+        const data = await response.json();
+        return { response, data };
+      }).catch(error => ({ error }));
+
+      // Wait for both the timer and the API response
+      const [{ response, data, error }] = await Promise.all([apiPromise, timerPromise]);
+      Swal.close();
+
+      if (error || !response || !response.ok || !data?.sessionId) {
+        await Swal.fire({
+          title: 'Subscription Error',
+          html: `<div class="space-y-4"><p>We encountered an issue while processing your request.</p></div>`,
+          icon: 'error',
+          confirmButtonText: 'Try Again',
+          confirmButtonColor: '#22c55e',
+          showCancelButton: true,
+          cancelButtonText: 'Close'
+        });
+        return;
       }
-  
+
       const stripe = await getStripe();
       if (!stripe) {
-        throw new Error('Failed to load payment system');
+        await Swal.fire({
+          title: 'Stripe Error',
+          text: 'Failed to load payment system.',
+          icon: 'error',
+          confirmButtonColor: '#22c55e'
+        });
+        return;
       }
-  
-      const { error } = await stripe.redirectToCheckout({
+
+      const result = await stripe.redirectToCheckout({
         sessionId: data.sessionId
       });
-  
-      if (error) {
-        throw error;
+      if (result.error) {
+        await Swal.fire({
+          title: 'Stripe Redirect Error',
+          text: result.error.message || 'An error occurred during redirection.',
+          icon: 'error',
+          confirmButtonColor: '#22c55e'
+        });
       }
-  
+
     } catch (error: any) {
+      // Log error to console
+      console.error('Subscription error:', error);
+      // Log error to terminal
+      fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          logError: true,
+          error: error?.message || error?.toString() || 'Unknown error',
+          plan,
+          userId: currentUser?.uid || null,
+          userEmail: currentUser?.email || null
+        })
+      });
       const errorCode = error.code as keyof typeof subscriptionErrorMessages;
       const errorDetails = subscriptionErrorMessages[errorCode] || {
         title: 'Subscription Error',
@@ -1311,62 +1352,50 @@ const Homepage: React.FC = () => {
             <h2 className="text-3xl font-bold mb-4">
               We are here to help you blog better!
             </h2>
-            {isSubmitted ? (
-              <p className="text-green-600 font-bold">
-                Thank you, {formData.name}! Your message has been sent.
-              </p>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    id="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    placeholder="Your name"
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                    Email address
-                  </label>
-                  <input
-                    type="email"
-                    id="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    placeholder="email@website.com"
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label htmlFor="message" className="block text-sm font-medium text-gray-700">
-                    Message
-                  </label>
-                  <textarea
-                    id="message"
-                    rows={4}
-                    value={formData.message}
-                    onChange={handleChange}
-                    placeholder="Your message"
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
-                    required
-                  ></textarea>
-                </div>
-                <button
-                  type="submit"
-                  className="w-full bg-black text-white font-bold py-3 px-4 rounded hover:bg-gray-600"
-                >
-                  Submit
-                </button>
-              </form>
-            )}
+            <form onSubmit={handleSubmit} className="space-y-6 bg-white rounded-2xl shadow-xl p-8 border border-gray-100 animate-fadeIn">
+              <div>
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input
+                  type="text"
+                  id="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  placeholder="Your name"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+                <input
+                  type="email"
+                  id="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  placeholder="email@website.com"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1">Message</label>
+                <textarea
+                  id="message"
+                  rows={4}
+                  value={formData.message}
+                  onChange={handleChange}
+                  placeholder="Your message"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                  required
+                ></textarea>
+              </div>
+              <button
+                type="submit"
+                className="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-all text-lg shadow"
+              >
+                Submit
+              </button>
+            </form>
           </div>
 
           <div className="bg-white p-8 rounded-lg shadow-lg">
@@ -1388,22 +1417,20 @@ const Homepage: React.FC = () => {
       </section>
 
       {isLoginFormVisible && (
-        <section id="#login" className="fixed inset-0 bg-gray-800 bg-opacity-50 flex justify-center items-center z-50">
-          <div className="relative bg-white p-8 rounded shadow-lg w-full max-w-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="relative w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl p-8 border border-gray-100 animate-fadeIn">
             <button
-              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
+              className="absolute top-4 right-4 text-gray-400 hover:text-green-600 transition-colors text-2xl font-bold focus:outline-none"
               onClick={toggleLoginForm}
-              aria-label="Close"
+              aria-label="Close login modal"
             >
               &times;
             </button>
-            <h2 className="text-2xl font-bold mb-4">Login</h2>
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-            <form className="space-y-4" onSubmit={handleLogin} autoComplete="off">
+            <h2 className="text-3xl font-bold text-center mb-6 text-gray-900">Login to Blog Fusion</h2>
+            {error && <p className="text-red-500 text-center mb-4 text-sm">{error}</p>}
+            <form className="space-y-5" onSubmit={handleLogin} autoComplete="off">
               <div>
-                <label htmlFor="login-email" className="block text-sm font-medium text-gray-700">
-                  Email Address
-                </label>
+                <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                 <input
                   type="email"
                   id="login-email"
@@ -1411,15 +1438,13 @@ const Homepage: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="email@website.com"
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                   autoComplete="off"
                   required
                 />
               </div>
               <div>
-                <label htmlFor="login-password" className="block text-sm font-medium text-gray-700">
-                  Password
-                </label>
+                <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <input
                   type="password"
                   id="login-password"
@@ -1427,66 +1452,61 @@ const Homepage: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                   autoComplete="new-password"
                   required
                 />
               </div>
-            
               <button
                 type="submit"
-                className="w-full bg-black text-white font-bold py-3 px-4 rounded hover:bg-gray-600"
+                className="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-all text-lg shadow"
               >
                 Login
               </button>
             </form>
-            <div className="my-4 text-center text-sm text-gray-400">OR</div>
+            <div className="my-4 text-center text-gray-400 text-sm">OR</div>
             <button
               onClick={handleGoogleLogin}
-              className="flex items-center justify-center w-full px-4 py-2 text-sm font-semibold text-gray-800 bg-white border border-gray-300 rounded hover:bg-gray-100"
+              className="flex items-center justify-center w-full px-4 py-3 text-base font-semibold text-gray-800 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-all"
             >
-              <FaGoogle className="mr-2" />
-              Login with Google
+              <FaGoogle className="mr-2" /> Login with Google
             </button>
-            <p className="mt-4 text-sm text-center text-gray-400">
-              Forgot your password?{" "}
+            <div className="mt-6 flex flex-col gap-2 text-center text-gray-500 text-sm">
               <button
                 onClick={handleForgotPassword}
-                className="text-blue-400 hover:underline"
+                className="text-blue-500 hover:underline focus:outline-none"
               >
-                Reset
+                Forgot your password?
               </button>
-            </p>
-            <p className="mt-4 text-sm text-center text-gray-400">
-              Do not have an account?{" "}
-              <button
-                onClick={toggleForm}
-                className="text-blue-400 hover:underline"
-              >
-                Sign up
-              </button>
-            </p>
+              <span>
+                Don&apos;t have an account?{' '}
+                <button
+                  onClick={toggleForm}
+                  className="text-green-600 hover:underline focus:outline-none"
+                >
+                  Sign up
+                </button>
+              </span>
+            </div>
           </div>
-        </section>
+        </div>
       )}
 
       {isSignupFormVisible && (
-        <section className="fixed inset-0 bg-gray-800 bg-opacity-50 flex justify-center items-center z-50">
-          <div className="relative bg-white p-8 rounded shadow-lg w-full max-w-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="relative w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl p-8 border border-gray-100 animate-fadeIn">
             <button
-              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
+              className="absolute top-4 right-4 text-gray-400 hover:text-green-600 transition-colors text-2xl font-bold focus:outline-none"
               onClick={toggleSignupForm}
-              aria-label="Close"
+              aria-label="Close signup modal"
             >
               &times;
             </button>
-            <h2 className="text-2xl font-bold mb-4">Sign Up</h2>
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-            <form className="space-y-4" onSubmit={handleSignUp} autoComplete="off">
+            <h2 className="text-3xl font-bold text-center mb-6 text-gray-900">Sign Up for Blog Fusion</h2>
+            {error && <p className="text-red-500 text-center mb-4 text-sm">{error}</p>}
+            <form className="space-y-5" onSubmit={handleSignUp} autoComplete="off">
               <div>
-                <label htmlFor="signup-name" className="block text-sm font-medium text-gray-700">
-                  Full Name
-                </label>
+                <label htmlFor="signup-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
                 <input
                   type="text"
                   id="signup-name"
@@ -1494,15 +1514,13 @@ const Homepage: React.FC = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Your name"
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                   autoComplete="off"
                   required
                 />
               </div>
               <div>
-                <label htmlFor="signup-email" className="block text-sm font-medium text-gray-700">
-                  Email Address
-                </label>
+                <label htmlFor="signup-email" className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                 <input
                   type="email"
                   id="signup-email"
@@ -1510,15 +1528,13 @@ const Homepage: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="email@website.com"
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                   autoComplete="off"
                   required
                 />
               </div>
               <div>
-                <label htmlFor="signup-password" className="block text-sm font-medium text-gray-700">
-                  Password
-                </label>
+                <label htmlFor="signup-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <input
                   type="password"
                   id="signup-password"
@@ -1526,20 +1542,47 @@ const Homepage: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                   autoComplete="new-password"
                   required
                 />
               </div>
               <button
                 type="submit"
-                className="w-full bg-black text-white font-bold py-3 px-4 rounded hover:bg-gray-600"
+                className="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-all text-lg shadow"
               >
                 Sign Up
               </button>
             </form>
+            <div className="mt-6 text-center text-gray-500 text-sm">
+              Already have an account?{' '}
+              <button
+                onClick={toggleForm}
+                className="text-green-600 hover:underline focus:outline-none"
+              >
+                Login
+              </button>
+            </div>
           </div>
-        </section>
+        </div>
+      )}
+
+      {/* Contact Modal (redesigned) */}
+      {isSubmitted && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="relative w-full max-w-md mx-auto bg-white rounded-2xl shadow-2xl p-8 border border-gray-100 animate-fadeIn text-center">
+            <button
+              className="absolute top-4 right-4 text-gray-400 hover:text-green-600 transition-colors text-2xl font-bold focus:outline-none"
+              onClick={() => setIsSubmitted(false)}
+              aria-label="Close contact modal"
+            >
+              &times;
+            </button>
+            <h2 className="text-3xl font-bold mb-4 text-green-700">Thank you!</h2>
+            <p className="text-lg text-gray-700 mb-2">Your message has been sent.</p>
+            <p className="text-gray-500">We appreciate your feedback, {formData.name}.</p>
+          </div>
+        </div>
       )}
 
       <footer className="bg-gray-900 text-white py-6">

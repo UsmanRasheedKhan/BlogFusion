@@ -1,13 +1,16 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { db } from "../firebase/firebaseConfig"; // Import the Firestore instance
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, Timestamp } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth"; // Import Firebase auth methods
 import Link from "next/link"; // Make sure this is imported
 import Image from "next/image"; // Import Next.js Image component
 import { FaUserCircle } from "react-icons/fa"; // Import the user icon from react-icons
 import Swal from "sweetalert2"; // Import SweetAlert2 for error handling
+import { Modal } from "react-responsive-modal"; // Import react-responsive-modal
+import "react-responsive-modal/styles.css"; // Import modal styles
 import "./Blogs.css"; // Add a CSS file for custom styles
+import { useRouter, useSearchParams } from "next/navigation"; // Import useRouter and useSearchParams
 
 // Define props for the BlogDetail component
 interface BlogDetailProps {
@@ -40,7 +43,11 @@ const BlogDetail: React.FC<BlogDetailProps> = ({ blogId }) => {
   const [blog, setBlog] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null); // State to store the logged-in user
+  const [likers, setLikers] = useState<any[]>([]); // Array of user objects who liked
+  const [showLikersModal, setShowLikersModal] = useState(false);
   const auth = getAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     // Check the authentication status on component mount
@@ -69,6 +76,25 @@ const BlogDetail: React.FC<BlogDetailProps> = ({ blogId }) => {
             createdAt: blogData.createdAt?.toDate() || new Date(),
             id: blogSnapshot.id
           });
+
+          // Fetch likers' display names
+          if (Array.isArray(blogData.likes) && blogData.likes.length > 0) {
+            const userDocs = await Promise.all(
+              blogData.likes.map((uid: string) =>
+                getDoc(doc(db, "users", uid))
+              )
+            );
+            setLikers(
+              userDocs
+                .filter((d) => d.exists())
+                .map((d) => ({
+                  uid: d.id,
+                  displayName: d.data()?.name || d.data()?.displayName || "User"
+                }))
+            );
+          } else {
+            setLikers([]);
+          }
         } else {
           throw new Error('not-found');
         }
@@ -128,54 +154,147 @@ const BlogDetail: React.FC<BlogDetailProps> = ({ blogId }) => {
     <div className="blog-page">
       {/* Navbar with User Icon and Name */}
       <div className="navbar-container">
-        <nav className="flex justify-between items-center px-6 py-4 border-b">
-          <div className="text-xl font-bold">BLOG FUSION</div>
+        <nav className="flex justify-between items-center px-6 py-4 border-b bg-white">
+          <div className="text-xl font-bold text-green-700">BLOG FUSION</div>
           <ul className="flex space-x-6">
-            <li><Link href="#home" className="hover:text-gray-500">Home</Link></li>
-            <li><Link href="#about" className="hover:text-gray-500">About</Link></li>
-            <li><Link href="#services" className="hover:text-gray-500">Services</Link></li>
-            <li><Link href="/blogfeed" className="hover:text-gray-500">Blog Feed</Link></li>
+            <li><Link href="/" className="hover:text-green-600">Home</Link></li>
+            <li><Link href="/about" className="hover:text-green-600">About</Link></li>
+            <li><Link href="/blogfeed" className="hover:text-green-600">Blog Feed</Link></li>
           </ul>
           <div className="flex items-center space-x-4">
-            {/* Check if user is logged in, display the user icon and name */}
-            {user ? (
-              <>
-                <FaUserCircle className="text-gray-500 w-8 h-8" /> {/* User Icon */}
-                <span className="text-gray-500">{user.displayName}</span> {/* User Name */}
-              </>
-            ) : (
-              <button
-                className="border px-4 py-2 rounded hover:bg-gray-100"
-                onClick={() => window.location.hash = "#contact"}
-              >
-                Contact
-              </button>
-            )}
+            <FaUserCircle className="text-gray-500 w-8 h-8" />
+            <span className="text-gray-500">{user?.displayName || user?.email || 'User'}</span>
           </div>
         </nav>
       </div>
 
+      {/* Back Button */}
+      <div className="px-6 pt-6">
+        {(() => {
+          const from = searchParams.get('from');
+          if (from === 'blogfeed') {
+            return (
+              <button
+                className="mb-6 px-4 py-2 bg-green-100 text-green-700 rounded hover:bg-green-200 font-semibold"
+                onClick={() => router.push('/blogfeed')}
+              >
+                &larr; Back to Blog Feed
+              </button>
+            );
+          } else if (from === 'myblogs') {
+            return (
+              <button
+                className="mb-6 px-4 py-2 bg-green-100 text-green-700 rounded hover:bg-green-200 font-semibold"
+                onClick={() => router.push('/blogs')}
+              >
+                &larr; Back to My Blogs
+              </button>
+            );
+          }
+          return null;
+        })()}
+      </div>
+
       {/* Blog Content */}
       <div className="blog-content-container">
-        <div className="blog-detail">
-          <h1 className="blog-title">{blog.title}</h1>
-          
-          {/* Ensure the createdAt date is displayed properly */}
-          <p className="blog-date">
-            {blog.createdAt ? blog.createdAt.toLocaleString() : "Date not available"}
-          </p>
+        <div
+          className="blog-detail"
+          style={{
+            maxWidth: 950,
+            margin: "0 auto",
+            width: "100%",
+            background: "white",
+            borderRadius: 12,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+            padding: 32,
+          }}
+        >
+          {/* Cover Image at the top if available */}
           {blog.image && (
-            <Image
+            <img
               src={blog.image}
               alt={blog.title}
               className="blog-image"
-              width={800}
-              height={400}
-              style={{ objectFit: "cover" }}
+              style={{
+                width: "100%",
+                height: 400,
+                objectFit: "cover",
+                borderRadius: 8,
+                marginBottom: 24,
+              }}
             />
           )}
-          {blog.image && <img src={blog.image} alt={blog.title} className="blog-image" />}
-          <div className="blog-content" dangerouslySetInnerHTML={{ __html: blog.content }} />
+          {/* Author and Date Row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+            <div style={{
+              width: 48,
+              height: 48,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #22c55e 60%, #16a34a 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontWeight: 700,
+              fontSize: 22,
+              fontFamily: 'inherit',
+              textTransform: 'uppercase',
+            }}>
+              {blog.author ? blog.author[0] : 'U'}
+            </div>
+            <span style={{ fontWeight: 600, color: '#16a34a', fontSize: 18 }}>{blog.author || 'User'}</span>
+            <span className="blog-date" style={{ color: '#64748b', fontSize: 15, marginLeft: 12 }}>
+              {blog.createdAt ? blog.createdAt.toLocaleString() : "Date not available"}
+            </span>
+          </div>
+          {/* Title (only once, below image and author row) */}
+          <h1 className="blog-title" style={{ fontSize: 38, fontWeight: 800, color: '#22223b', marginBottom: 24, marginTop: 0 }}>
+            {blog.title}
+          </h1>
+          {/* Blog Content */}
+          <div
+            className="blog-content"
+            style={{ fontSize: "1.1rem", lineHeight: 1.8, color: "#374151", marginTop: 24 }}
+            dangerouslySetInnerHTML={{ __html: blog.content }}
+          />
+
+          {/* Like Button and Likers */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '1rem 0' }}>
+            {/* Like Button (reuse your logic if needed) */}
+            <button className="like-btn">
+              <FaUserCircle /> Like
+            </button>
+            {/* Likers display */}
+            {likers.length > 0 && (
+              <span
+                className="likers-summary hover:underline cursor-pointer text-gray-600"
+                onClick={() => setShowLikersModal(true)}
+              >
+                {(() => {
+                  const you = user && blog.likes?.includes(user.uid);
+                  const others = likers.filter(l => !user || l.uid !== user.uid);
+                  let text = '';
+                  if (you && others.length > 0) {
+                    text = `You, ${others[0].displayName}${others.length > 1 ? ' & more' : ''} liked`;
+                  } else if (you) {
+                    text = 'You liked';
+                  } else if (others.length > 0) {
+                    text = `${others[0].displayName}${others.length > 1 ? ' & more' : ''} liked`;
+                  }
+                  return text;
+                })()}
+              </span>
+            )}
+          </div>
+          {/* Modal for all likers */}
+          <Modal open={showLikersModal} onClose={() => setShowLikersModal(false)} center>
+            <h2 className="text-lg font-bold mb-4">People who liked this blog</h2>
+            <ul className="space-y-2">
+              {likers.map(liker => (
+                <li key={liker.uid} className="text-gray-700">{liker.displayName}</li>
+              ))}
+            </ul>
+          </Modal>
         </div>
       </div>
 
@@ -198,6 +317,12 @@ const BlogDetail: React.FC<BlogDetailProps> = ({ blogId }) => {
       </footer>
     </div>
   );
+};
+
+// When creating a new comment or like object:
+const newComment = {
+  // ...other fields,
+  createdAt: Timestamp.now(), // Use this instead of serverTimestamp()
 };
 
 export default BlogDetail;

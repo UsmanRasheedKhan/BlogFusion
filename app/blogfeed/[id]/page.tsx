@@ -153,63 +153,38 @@ const LikesDisplay = ({ likes }: { likes: Like[] }) => {
   const [showAllLikes, setShowAllLikes] = useState(false);
 
   if (!Array.isArray(likes) || likes.length === 0) {
-    return <span className="text-gray-500">No likes yet</span>;
-  }
-
-  const sortedLikes = [...likes].sort((a, b) => {
-    if (!a.timestamp || !b.timestamp) return 0;
-    return b.timestamp.seconds - a.timestamp.seconds;
-  });
-
-  const displayLikes = () => {
-    if (sortedLikes.length === 1) {
-      return (
-        <span>
-          Liked by{' '}
-          <span className="font-semibold text-gray-900">
-            {sortedLikes[0].username} ({sortedLikes[0].userId})
-          </span>
-        </span>
-      );
-    }
-
-    if (sortedLikes.length === 2) {
-      return (
-        <span>
-          Liked by{' '}
-          <span className="font-semibold text-gray-900">
-            {sortedLikes[0].username} ({sortedLikes[0].userId})
-          </span>{' '}
-          and{' '}
-          <span className="font-semibold text-gray-900">
-            {sortedLikes[1].username} ({sortedLikes[1].userId})
-          </span>
-        </span>
-      );
-    }
-
     return (
-      <span>
-        Liked by{' '}
-        <span className="font-semibold text-gray-900">
-          {sortedLikes[0].username} ({sortedLikes[0].userId})
-        </span>{' '}
-        and{' '}
-        <button
-          onClick={() => setShowAllLikes(true)}
-          className="font-semibold text-green-600 hover:text-green-700 underline-offset-2 hover:underline"
-        >
-          {sortedLikes.length - 1} others
-        </button>
+      <span className="text-gray-500 cursor-pointer" onClick={() => setShowAllLikes(true)}>
+        No likes yet
       </span>
     );
-  };
+  }
+
+  // Sort likes by timestamp descending (newest first)
+  const sortedLikes = [...likes].sort((a, b) => {
+    if (!a.timestamp || !b.timestamp) return 0;
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+
+  // Always show the newest name and the rest as 'x others'
+  let likeText = null;
+  if (sortedLikes.length === 1) {
+    likeText = (
+      <span className="cursor-pointer hover:underline" onClick={() => setShowAllLikes(true)}>
+        Liked by {sortedLikes[0].username}
+      </span>
+    );
+  } else {
+    likeText = (
+      <span className="cursor-pointer hover:underline" onClick={() => setShowAllLikes(true)}>
+        Liked by {sortedLikes[0].username} and {sortedLikes.length - 1} others
+      </span>
+    );
+  }
 
   return (
     <div className="relative">
-      {displayLikes()}
-
-      {/* Updated Likes Modal with User IDs */}
+      {likeText}
       {showAllLikes && (
         <motion.div
           initial={{ opacity: 0 }}
@@ -255,15 +230,6 @@ const LikesDisplay = ({ likes }: { likes: Like[] }) => {
                     <p className="font-medium text-gray-900">
                       {like.username}
                     </p>
-                    <p className="text-xs text-gray-500">
-                      ID: {like.userId}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      {like.timestamp?.toDate?.() 
-                        ? new Date(like.timestamp.toDate()).toLocaleDateString()
-                        : 'Recently'
-                      }
-                    </p>
                   </div>
                 </motion.div>
               ))}
@@ -302,6 +268,10 @@ const BlogDetailPage = () => {
 
         if (blogDoc.exists()) {
           const data = blogDoc.data();
+          // Log image info for debugging
+          console.log('Fetched blog data:', data);
+          console.log('Fetched coverImage:', data.coverImage);
+          console.log('Fetched image:', data.image);
           
           // Fetch author data
           let authorData = null;
@@ -367,28 +337,17 @@ const BlogDetailPage = () => {
         // Remove like
         const updatedLikes = currentLikes.filter((like: Like) => like.userId !== user.uid);
         await updateDoc(blogRef, { likes: updatedLikes });
-        
-        // Update local state
-        setBlog((prev: any) => ({
-          ...prev,
-          likes: updatedLikes
-        }));
+        setBlog((prev: any) => ({ ...prev, likes: updatedLikes }));
       } else {
-        // Add new like with user info
+        // Add new like with user info and client timestamp
         const newLike: Like = {
           userId: user.uid,
           username: user.displayName || '',
-          timestamp: serverTimestamp()
+          timestamp: new Date() // Use client-side timestamp instead of serverTimestamp()
         };
-        
         const updatedLikes = [...currentLikes, newLike];
         await updateDoc(blogRef, { likes: updatedLikes });
-        
-        // Update local state
-        setBlog((prev: any) => ({
-          ...prev,
-          likes: updatedLikes
-        }));
+        setBlog((prev: any) => ({ ...prev, likes: updatedLikes }));
       }
     } catch (error) {
       console.error("Error updating like:", error);
@@ -570,15 +529,37 @@ const BlogDetailPage = () => {
       {/* Enhanced Navigation Bar */}
       <nav className="bg-white/80 backdrop-blur-md border-b border-gray-100 sticky top-0 z-50 transition-all duration-300">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link 
-            href="/blogfeed" 
-            className="flex items-center space-x-2 text-gray-600 hover:text-green-600 transition-all duration-300"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            <span className="font-medium">Back to Blogs</span>
-          </Link>
+          {(() => {
+            const from = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('from') : null;
+            if (from === 'blogfeed') {
+              return (
+                <Link href="/blogfeed" className="flex items-center space-x-2 text-gray-600 hover:text-green-600 transition-all duration-300">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span className="font-medium">Back to Blog Feed</span>
+                </Link>
+              );
+            } else if (from === 'myblogs') {
+              return (
+                <Link href="/blogs" className="flex items-center space-x-2 text-gray-600 hover:text-green-600 transition-all duration-300">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span className="font-medium">Back to My Blogs</span>
+                </Link>
+              );
+            } else {
+              return (
+                <Link href="/" className="flex items-center space-x-2 text-gray-600 hover:text-green-600 transition-all duration-300">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span className="font-medium">Back Home</span>
+                </Link>
+              );
+            }
+          })()}
 
           {/* Enhanced User Profile Section */}
           <div className="relative">
@@ -659,14 +640,13 @@ const BlogDetailPage = () => {
         </div>
       </nav>
 
-      {/* Enhanced Main Content */}
-      <main className="max-w-4xl mx-auto px-4 py-12">
+      <main className="max-w-5xl mx-auto px-4 py-12">
         <motion.article 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden"
         >
-          {/* Enhanced Blog Header */}
+          {/* Author, Cover Image, Date, and Title Row */}
           <header className="p-8 border-b border-gray-100 bg-gradient-to-br from-gray-50 to-white">
             <div className="flex items-center space-x-4 mb-6">
               <motion.div 
@@ -674,12 +654,12 @@ const BlogDetailPage = () => {
                 className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center shadow-md"
               >
                 <span className="text-white font-medium text-lg">
-                  {blog.authorName?.[0]?.toUpperCase() || 'A'}
+                  {(blog.authorName || blog.author)?.[0]?.toUpperCase() || 'A'}
                 </span>
               </motion.div>
               <div>
                 <h3 className="font-semibold text-gray-900 text-lg">
-                  {blog.authorName || 'Unknown Author'}
+                  {blog.authorName || blog.author || 'Unknown Author'}
                 </h3>
                 <div className="flex items-center text-sm text-gray-500 mt-1">
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -689,20 +669,27 @@ const BlogDetailPage = () => {
                 </div>
               </div>
             </div>
-            
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">
-              {blog.title}
-            </h1>
-            
-            {/* Optional: Add author's bio or description */}
+            {/* Cover Image between author and title */}
+            {(blog.coverImage || blog.image) && (
+              <img
+                src={blog.coverImage || blog.image}
+                className="w-full h-96 object-cover rounded-b-none rounded-t-2xl mb-8"
+                style={{ display: 'block' }}
+              />
+            )}
+            {/* Show title only if type is manual */}
+            {blog.type === 'manual' && (
+              <h1 className="text-4xl font-bold text-gray-900 mb-4 mt-4">
+                {blog.title}
+              </h1>
+            )}
             {blog.authorBio && (
               <p className="text-gray-600 mt-2">
                 {blog.authorBio}
               </p>
             )}
           </header>
-
-          {/* Enhanced Blog Content */}
+          {/* Blog Content */}
           <div className="p-8">
             <div 
               className="prose prose-lg max-w-none prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-green-600 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl prose-blockquote:border-green-500"
@@ -718,14 +705,17 @@ const BlogDetailPage = () => {
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={handleLike}
-                  className={`flex items-center space-x-2 ${
+                  className={`flex items-center space-x-2 transition-all duration-300 ${
                     blog.likes?.some((like: Like) => like.userId === user?.uid)
-                      ? 'text-green-600'
+                      ? 'text-green-600 font-semibold' // Show as liked
                       : 'text-gray-500 hover:text-green-600'
-                  } transition-all duration-300`}
+                  }`}
                 >
                   <FaThumbsUp className="text-xl" />
-                  <span className="font-medium">{blog.likes?.length || 0}</span>
+                  <span className="font-medium">
+                    {blog.likes?.some((like: Like) => like.userId === user?.uid) ? 'Liked' : 'Like'}
+                  </span>
+                  <span>{blog.likes?.length || 0}</span>
                 </motion.button>
 
                 <div className="text-sm text-gray-600">
