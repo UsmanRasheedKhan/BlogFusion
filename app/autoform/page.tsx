@@ -10,6 +10,9 @@ import { generateBlog } from '../api/lib/api';
 import { auth } from "../firebase/firebaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import Swal from 'sweetalert2';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase/firebaseConfig';
 
 interface FormData {
   topic: string;
@@ -31,12 +34,12 @@ const FormPage: React.FC = () => {
   const [error, setError] = useState<string>('');
   const [urls, setUrls] = useState<string[]>([]);
   const [user, setUser] = useState<any>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imageUrl, setImageUrl] = useState<string>("");
   const [imageLink, setImageLink] = useState<string>("");
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
   const [category, setCategory] = useState<string>("");
+  const [userPlan, setUserPlan] = useState<string>('basic');
+  const [planExpiry, setPlanExpiry] = useState<any>(null);
   const router = useRouter();
 
   const countries = ['USA', 'Canada', 'UK', 'Australia', 'Germany', 'France', 'India', 'China', 'Japan', 'Pakistan'];
@@ -60,26 +63,25 @@ const FormPage: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setImageFile(e.target.files[0]);
-      setImageLink(""); // Clear direct link if file is chosen
+  useEffect(() => {
+    if (user) {
+      const fetchPlan = async () => {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          setUserPlan(data.plan || 'basic');
+          setPlanExpiry(data.planExpiry || null);
+        }
+      };
+      fetchPlan();
     }
-  };
+  }, [user]);
 
-  const handleImageLinkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setImageLink(e.target.value);
-    if (e.target.value) setImageFile(null); // Clear file if direct link is entered
-  };
-
-  // Helper to validate image URL
   const isValidImageUrl = (url: string) => {
     try {
       const parsed = new URL(url);
-      return (
-        (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
-        /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(parsed.pathname)
-      );
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
     } catch {
       return false;
     }
@@ -93,20 +95,37 @@ const FormPage: React.FC = () => {
     setProgress(0);
     setProgressText(progressSteps[0].text);
 
-    let finalImageUrl = "";
+    // PLAN CHECK
+    const now = new Date();
+    let expired = false;
+    if (userPlan !== 'basic' && planExpiry) {
+      expired = new Date(planExpiry) < now;
+    }
+    if (userPlan === 'basic' || expired) {
+      setLoading(false);
+      await Swal.fire({
+        title: expired ? 'Plan Expired' : 'Upgrade Required',
+        text: expired
+          ? 'Your subscription has expired. Please upgrade to continue using AI blog generation.'
+          : 'AI blog generation is only available for Medium and Premium plans. Please upgrade your plan.',
+        icon: 'warning',
+        confirmButtonText: 'Upgrade Now',
+        confirmButtonColor: '#22c55e',
+      });
+      return;
+    }
 
-    if (!imageFile && !imageLink) {
-      setError("Please upload a blog image or provide an image link before generating the blog.");
+    if (!imageLink) {
+      setError("Please provide an image link before generating the blog.");
       setLoading(false);
       return;
     }
-    if (imageLink && !isValidImageUrl(imageLink)) {
-      setError("Please provide a valid direct image URL (must end with .jpg, .png, etc.)");
+    if (!isValidImageUrl(imageLink)) {
+      setError("Please provide a valid image URL (must start with http/https)");
       setLoading(false);
       return;
     }
 
-    // Progress simulation
     let step = 0;
     const progressInterval = setInterval(() => {
       step++;
@@ -117,39 +136,42 @@ const FormPage: React.FC = () => {
     }, 1200);
 
     try {
-      if (imageFile) {
-        const storage = getStorage();
-        const imgRef = storageRef(storage, `blog-images/${Date.now()}_${imageFile.name}`);
-        await uploadBytes(imgRef, imageFile);
-        finalImageUrl = await getDownloadURL(imgRef);
-        setImageUrl(finalImageUrl);
-      } else if (imageLink) {
-        finalImageUrl = imageLink;
-        setImageUrl(imageLink);
-      }
+      const finalImageUrl = imageLink;
+      setImageLink(imageLink);
 
-      // Wait for progress bar to reach 'Generating blog...'
       await new Promise(res => setTimeout(res, 2400));
 
-      // Call API (simulate network delay for progress bar)
       setProgress(progressSteps[2].percent);
       setProgressText(progressSteps[2].text);
-      const { image, ...rest } = formData;
       const response = await generateBlog({
-        ...rest,
+        ...formData,
         title: formData.topic
       });
 
-      // Wait for progress bar to reach 'Finalizing blog...'
       setProgress(progressSteps[3].percent);
       setProgressText(progressSteps[3].text);
       await new Promise(res => setTimeout(res, 1200));
 
+      const keywordsArray = formData.keywords.split(',').map(k => k.trim()).filter(Boolean);
+      const urlsArray = formData.urls.split(',').map(u => u.trim()).filter(Boolean);
+      console.log('Generated keywords:', keywordsArray);
+      console.log('Generated urls:', urlsArray);
+      sessionStorage.setItem('keywordsArray', JSON.stringify(keywordsArray));
+      sessionStorage.setItem('urlsArray', JSON.stringify(urlsArray));
       sessionStorage.setItem('generatedBlog', response.blog);
       sessionStorage.setItem('blogImage', finalImageUrl);
       sessionStorage.setItem('category', category);
-      const urlsArray = formData.urls.split(',').map(u => u.trim()).filter(Boolean);
-      sessionStorage.setItem('urlsArray', JSON.stringify(urlsArray));
+
+      if (user) {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const { db } = await import('../firebase/firebaseConfig');
+        await setDoc(doc(db, "userKeywords", user.uid), {
+          keywords: keywordsArray,
+          urls: urlsArray,
+          updatedAt: new Date()
+        });
+      }
+
       clearInterval(progressInterval);
       setLoading(false);
       router.push('/blogeditor');
@@ -171,7 +193,7 @@ const FormPage: React.FC = () => {
       formData.country &&
       formData.audience &&
       formData.urls &&
-      (imageFile || (imageLink && isValidImageUrl(imageLink))) &&
+      imageLink &&
       category
     );
   };
@@ -315,29 +337,19 @@ const FormPage: React.FC = () => {
                   </select>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Blog Image <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Blog Image Link <span className="text-red-500">*</span></label>
                   <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all mb-2"
-                    disabled={!!imageLink}
+                    type="url"
+                    value={imageLink}
+                    onChange={e => setImageLink(e.target.value)}
+                    placeholder="Paste any direct image URL (must start with http/https)"
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    required
                   />
-                  <div className="flex items-center gap-4 mb-2">
-                    <span className="text-gray-500 text-sm">or</span>
-                    <input
-                      type="url"
-                      value={imageLink}
-                      onChange={handleImageLinkChange}
-                      placeholder="Paste direct image URL (https://...)"
-                      className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
-                      disabled={!!imageFile}
-                    />
-                  </div>
-                  {(imageFile || imageLink) && (
+                  {imageLink && (
                     <div className="mt-2">
                       <img
-                        src={imageFile ? URL.createObjectURL(imageFile) : imageLink}
+                        src={imageLink}
                         alt="Preview"
                         className="h-32 rounded-lg object-cover border"
                         onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}

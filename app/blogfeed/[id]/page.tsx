@@ -109,6 +109,23 @@ const formatBlogDate = (timestamp: Timestamp | Date | null): string => {
   }).format(date);
 };
 
+// Helper to embed keyword links
+const embedKeywordLinks = (content: string, keywords: string[] = [], urls: string[] = []) => {
+  if (!keywords.length || !urls.length) return content;
+  let processed = content;
+  keywords.forEach((keyword, idx) => {
+    if (keyword && urls[idx]) {
+      // Only match whole words, not inside existing <a> tags
+      const regex = new RegExp(`(?<![>])\\b${keyword.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b(?![^<]*<\\/a>)`, 'gi');
+      processed = processed.replace(
+        regex,
+        `<a href="${urls[idx]}" target="_blank" rel="noopener noreferrer" class="text-green-600 font-bold hover:underline">${keyword}</a>`
+      );
+    }
+  });
+  return processed;
+};
+
 // First, update the interface to include authorName
 interface BlogData {
   id: string;
@@ -693,7 +710,7 @@ const BlogDetailPage = () => {
           <div className="p-8">
             <div 
               className="prose prose-lg max-w-none prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-green-600 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl prose-blockquote:border-green-500"
-              dangerouslySetInnerHTML={{ __html: blog.content }}
+              dangerouslySetInnerHTML={{ __html: embedKeywordLinks(blog.content, blog.keywords, blog.urls) }}
             />
           </div>
 

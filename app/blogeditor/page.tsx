@@ -20,7 +20,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import AutoAwesomeMotionIcon from '@mui/icons-material/AutoAwesomeMotion';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import { db, auth } from "../firebase/firebaseConfig";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc as firestoreDoc, getDoc as firestoreGetDoc } from "firebase/firestore";
 import Swal from 'sweetalert2';
 
 const humanizationSteps = [
@@ -47,6 +47,9 @@ const BlogEditor = () => {
   const [urls, setUrls] = useState<string[]>([]);
   const [user, setUser] = useState<any>(null);
   const [title, setTitle] = useState('');
+  const [linkedKeywordCount, setLinkedKeywordCount] = useState(0);
+  const [userPlan, setUserPlan] = useState<string>('basic');
+  const [planExpiry, setPlanExpiry] = useState<any>(null);
 
   // Read from URL params or sessionStorage
   const generatedBlog = searchParams.get('generatedBlog') || '';
@@ -59,10 +62,48 @@ const BlogEditor = () => {
   }, []);
 
   useEffect(() => {
+    if (user) {
+      const fetchPlan = async () => {
+        const userRef = firestoreDoc(db, 'users', user.uid);
+        const userSnap = await firestoreGetDoc(userRef);
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          setUserPlan(data.plan || 'basic');
+          setPlanExpiry(data.planExpiry || null);
+        }
+      };
+      fetchPlan();
+    }
+  }, [user]);
+
+  useEffect(() => {
     const storedKeywords = JSON.parse(sessionStorage.getItem('keywordsArray') || '[]');
     const storedUrls = JSON.parse(sessionStorage.getItem('urlsArray') || '[]');
-    setKeywords(storedKeywords);
-    setUrls(storedUrls);
+    if (storedKeywords.length && storedUrls.length) {
+      setKeywords([...storedKeywords]);
+      setUrls([...storedUrls]);
+      console.log('Fetched keywords:', storedKeywords);
+      console.log('Fetched urls:', storedUrls);
+    } else if (auth.currentUser) {
+      // Fetch from Firestore if not in sessionStorage
+      import('firebase/firestore').then(async (firestore) => {
+        const { doc, getDoc } = firestore;
+        const { db } = await import('../firebase/firebaseConfig');
+        const user = auth.currentUser;
+        if (!user) return;
+        const userKeywordsRef = doc(db, 'userKeywords', user.uid);
+        const userKeywordsSnap = await getDoc(userKeywordsRef);
+        if (userKeywordsSnap.exists()) {
+          const data = userKeywordsSnap.data();
+          setKeywords(data.keywords || []);
+          setUrls(data.urls || []);
+          sessionStorage.setItem('keywordsArray', JSON.stringify(data.keywords || []));
+          sessionStorage.setItem('urlsArray', JSON.stringify(data.urls || []));
+          console.log('Fetched keywords from Firestore:', data.keywords || []);
+          console.log('Fetched urls from Firestore:', data.urls || []);
+        }
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -106,6 +147,14 @@ const BlogEditor = () => {
       setProgressStep(0);
     }
   }, [isLoading]);
+
+  useEffect(() => {
+    console.log('keywords state updated:', keywords);
+  }, [keywords]);
+
+  useEffect(() => {
+    console.log('urls state updated:', urls);
+  }, [urls]);
 
   const handleHumanizeBlog = async () => {
     setIsLoading(true);
@@ -189,6 +238,26 @@ const BlogEditor = () => {
     return formattedContent;
   };
 
+  const embedKeywordLinks = (content: string, keywords: string[] = [], urls: string[] = []) => {
+    if (!keywords.length || !urls.length) return { content, count: 0 };
+    let processed = content;
+    let count = 0;
+    const used = new Set();
+    keywords.forEach((keyword, idx) => {
+      if (keyword && urls[idx]) {
+        // Only match whole words, case-insensitive, not inside existing <a> tags
+        const regex = new RegExp(`(?<![>])\\b${keyword.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b(?![^<]*<\\/a>)`, 'gi');
+        processed = processed.replace(regex, (match) => {
+          if (used.has(match.toLowerCase())) return match; // avoid double-linking
+          used.add(match.toLowerCase());
+          count++;
+          return `<a href="${urls[idx]}" target="_blank" rel="noopener noreferrer">${match}</a>`;
+        });
+      }
+    });
+    return { content: processed, count };
+  };
+
   const handleUseHumanizedContent = () => {
     setEditedBlog(suggestedContent);
     setIsHumanized(true);
@@ -229,21 +298,34 @@ const BlogEditor = () => {
         throw new Error('You must be logged in to publish a blog');
       }
 
+      // PLAN CHECK
+      const now = new Date();
+      let expired = false;
+      if (userPlan !== 'basic' && planExpiry) {
+        expired = new Date(planExpiry) < now;
+      }
+      if (userPlan === 'basic' || expired) {
+        await Swal.fire({
+          title: expired ? 'Plan Expired' : 'Upgrade Required',
+          text: expired
+            ? 'Your subscription has expired. Please upgrade to continue publishing blogs.'
+            : 'Publishing blogs is only available for Medium and Premium plans. Please upgrade your plan.',
+          icon: 'warning',
+          confirmButtonText: 'Upgrade Now',
+          confirmButtonColor: '#22c55e',
+        });
+        return;
+      }
+
       // Show loading state
       setIsLoading(true);
 
       let processedContent = currentContent;
 
-      // Embed keywords as hyperlinks
-      keywords.forEach((keyword, idx) => {
-        if (keyword && urls[idx]) {
-          const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
-          processedContent = processedContent.replace(
-            regex,
-            `<a href="${urls[idx]}" target="_blank" rel="noopener noreferrer">${keyword}</a>`
-          );
-        }
-      });
+      // Embed keywords as hyperlinks and count them
+      const { content: linkedContent, count: linkedCount } = embedKeywordLinks(processedContent, keywords, urls);
+      processedContent = linkedContent;
+      setLinkedKeywordCount(linkedCount); // for display
 
       // Format the processed content as HTML
       const formattedBlogHtml = formatBlogContent(processedContent);
@@ -276,7 +358,8 @@ const BlogEditor = () => {
         coverImage, // <-- Save the image URL
         type: 'manual', // <-- Add this line
       };
-
+      console.log('Publishing blog with keywords:', keywords);
+      console.log('Publishing blog with urls:', urls);
       // Add to Firestore
       const docRef = await addDoc(collection(db, "blogs"), blogData);
 
@@ -313,6 +396,23 @@ const BlogEditor = () => {
 
   const currentContent = activeTab === 0 ? editedBlog : suggestedContent;
   const currentScore = activeTab === 0 ? aiScoreOriginal : aiScoreHumanized;
+
+  if (userPlan === 'basic' || (userPlan !== 'basic' && planExpiry && new Date(planExpiry) < new Date())) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <div className="bg-white p-8 rounded-xl shadow-lg border border-gray-200 max-w-md w-full text-center">
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">Upgrade Required</h2>
+          <p className="mb-6 text-gray-600">The automated blog writer is only available for Medium and Premium plan users. Please upgrade your plan to access this feature.</p>
+          <button
+            className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-semibold"
+            onClick={() => window.location.href = '/profile'}
+          >
+            Upgrade Plan
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (blogFetch) {
     return (
@@ -469,7 +569,7 @@ const BlogEditor = () => {
                 </div>
                 <div className="mb-4">
                   <span className="block text-gray-500 text-sm mb-1">SEO Optimization</span>
-                  <span className="font-semibold text-gray-700">{keywords.length} keywords integrated</span>
+                  <span className="font-semibold text-gray-700">{keywords.length} keyword{keywords.length !== 1 ? 's' : ''} have been integrated</span>
                 </div>
                 <div className="mb-4">
                   <span className="block text-gray-500 text-sm mb-1">Humanization</span>

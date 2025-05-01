@@ -9,9 +9,8 @@ import { FaRegEnvelope } from "react-icons/fa";
 import { MdLockOutline } from "react-icons/md";
 import { auth } from '../firebase/firebaseConfig';
 import { googleAuthProvider } from '../firebase/firebaseConfig';
-
-
-
+import { db } from '../firebase/firebaseConfig';
+import { setDoc, doc } from 'firebase/firestore';
 
 const Register = () => {
   const [name, setName] = useState("");
@@ -56,6 +55,15 @@ const Register = () => {
 
       // Update user profile with displayName
       await updateProfile(userCredential.user, { displayName: name });
+
+      // Store plan info in Firestore
+      await setDoc(doc(db, "users", userCredential.user.uid), {
+        name: name,
+        email: email,
+        createdAt: new Date(),
+        plan: "basic",
+        planExpiry: null
+      });
 
       // Send email verification
       await sendEmailVerification(auth.currentUser!);

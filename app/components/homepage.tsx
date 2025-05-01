@@ -164,23 +164,60 @@ const UserMenu: React.FC<{
   user: any; 
   onLogout: () => void;
   onUpgrade: () => void;
-}> = ({ user, onLogout, onUpgrade }) => {
+  userPlan: string | null;
+}> = ({ user, onLogout, onUpgrade, userPlan }) => {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  const handleMouseEnter = () => {
+    if (dropdownTimeout.current) clearTimeout(dropdownTimeout.current);
+    setDropdownOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    dropdownTimeout.current = setTimeout(() => setDropdownOpen(false), 1000);
+  };
+
+  const handleDropdownEnter = () => {
+    if (dropdownTimeout.current) clearTimeout(dropdownTimeout.current);
+    setDropdownOpen(true);
+  };
+
+  const handleDropdownLeave = () => {
+    dropdownTimeout.current = setTimeout(() => setDropdownOpen(false), 200);
+  };
+
+  const handleProfileClick = () => {
+    window.location.href = '/profile';
+  };
+
   return (
     <div className="flex items-center space-x-4">
-      {/* Upgrade Button */}
-      <button
-        onClick={onUpgrade}
-        className="px-4 py-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors flex items-center space-x-1"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-        </svg>
-        <span>Upgrade</span>
-      </button>
-
+      {/* Show Upgrade Button only if not premium */}
+      {userPlan !== 'premium' && (
+        <button
+          onClick={onUpgrade}
+          className="px-4 py-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors flex items-center space-x-1"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+          </svg>
+          <span>Upgrade</span>
+        </button>
+      )}
+      {/* Show Plan Name */}
+      {userPlan && (
+        <span className="ml-2 px-3 py-1 bg-gray-100 rounded-full text-xs font-semibold text-green-700">
+          {userPlan.charAt(0).toUpperCase() + userPlan.slice(1)} Plan
+        </span>
+      )}
       {/* User Menu */}
-      <div className="relative group">
-        <div className="flex items-center space-x-3 cursor-pointer">
+      <div
+        className="relative group"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        <div className="flex items-center space-x-3 cursor-pointer" onClick={handleProfileClick}>
           <div className="w-10 h-10 rounded-full bg-gradient-to-r from-green-400 to-green-600 flex items-center justify-center text-white overflow-hidden">
             {user.photoURL ? (
               <Image
@@ -200,8 +237,11 @@ const UserMenu: React.FC<{
             {user.displayName || 'User'}
           </span>
         </div>
-
-        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg py-1 hidden group-hover:block border border-gray-100 transform transition-all duration-300 opacity-0 group-hover:opacity-100">
+        <div
+          className={`absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg py-1 border border-gray-100 transform transition-all duration-300 ${dropdownOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+          onMouseEnter={handleDropdownEnter}
+          onMouseLeave={handleDropdownLeave}
+        >
           <Link 
             href="/profile" 
             className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -236,6 +276,7 @@ const Homepage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [blogFunctionality, setBlogFunctionality] = useState<"manual" | "automated">("manual");
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userPlan, setUserPlan] = useState<string | null>(null);
   const router = useRouter();
   const aboutSectionRef = useRef<HTMLDivElement>(null);
   const servicesSectionRef = useRef<HTMLDivElement>(null);
@@ -255,6 +296,22 @@ const Homepage: React.FC = () => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       setCurrentUser(user);
       setIsLoggedIn(!!user);
+      if (user) {
+        // Fetch user plan from Firestore
+        (async () => {
+          const userRef = doc(db, "users", user.uid);
+          const userSnap = await (await import("firebase/firestore")).getDoc(userRef);
+          if (userSnap.exists()) {
+            const userData = userSnap.data();
+            console.log('User profile data:', userData); // Log profile details
+            setUserPlan(userData.plan || "basic");
+          } else {
+            setUserPlan("basic");
+          }
+        })();
+      } else {
+        setUserPlan(null);
+      }
     });
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -264,6 +321,26 @@ const Homepage: React.FC = () => {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      // Check if user exists in Firestore, if not, log details
+      (async () => {
+        const userRef = doc(db, "users", currentUser.uid);
+        const userSnap = await (await import("firebase/firestore")).getDoc(userRef);
+        if (!userSnap.exists()) {
+          await setDoc(userRef, {
+            name: currentUser.displayName || "",
+            email: currentUser.email,
+            savedBlogs: [],
+            createdAt: new Date(),
+            plan: "basic",
+            planExpiry: null
+          });
+        }
+      })();
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     if (isLoginFormVisible) {
@@ -467,7 +544,10 @@ const Homepage: React.FC = () => {
         name: name,
         email: email,
         savedBlogs: [],
-        createdAt: new Date()
+        createdAt: new Date(),
+        plan: "basic", // Assign default plan
+        planExpiry: null, // No expiry for basic plan
+        publishedBlogs: 0 // Track published blogs for plan restrictions
       });
 
       await updateProfile(userCredential.user, { displayName: name });
@@ -519,7 +599,7 @@ const Homepage: React.FC = () => {
             <div className="p-4 w-1/3 text-center border-2 border-gray-300 rounded-lg mx-4">
               <h3 className="font-bold text-lg mb-2">Basic</h3>
               <p className="text-sm mb-4">Perfect for individual users.</p>
-              <div className="font-semibold mb-4">$10 / month</div>
+              <div className="font-semibold mb-4">$0 / month</div>
               <button className="px-6 py-2 bg-black text-white rounded hover:bg-gray-600">
                 Choose Plan
               </button>
@@ -528,7 +608,7 @@ const Homepage: React.FC = () => {
             <div className="p-4 w-1/3 text-center border-2 border-gray-300 rounded-lg mx-4">
               <h3 className="font-bold text-lg mb-2">Medium</h3>
               <p className="text-sm mb-4">Ideal for small teams.</p>
-              <div className="font-semibold mb-4">$20 / month</div>
+              <div className="font-semibold mb-4">$5.00 / month</div>
               <button className="px-6 py-2 bg-black text-white rounded hover:bg-gray-600">
                 Choose Plan
               </button>
@@ -537,7 +617,7 @@ const Homepage: React.FC = () => {
             <div className="p-4 w-1/3 text-center border-2 border-gray-300 rounded-lg mx-4">
               <h3 className="font-bold text-lg mb-2">Premium</h3>
               <p className="text-sm mb-4">Best for large organizations.</p>
-              <div className="font-semibold mb-4">$50 / month</div>
+              <div className="font-semibold mb-4">$8.00 / month</div>
               <button className="px-6 py-2 bg-black text-white rounded hover:bg-gray-600">
                 Choose Plan
               </button>
@@ -862,7 +942,7 @@ const Homepage: React.FC = () => {
               <div className="flex flex-col h-full">
                 <div className="mb-6">
                   <h3 className="font-bold text-xl mb-2">Medium</h3>
-                  <p className="text-green-600 font-semibold mb-4">$5.99/month</p>
+                  <p className="text-green-600 font-semibold mb-4">$5.00/month</p>
                   <p className="text-sm text-gray-600 mb-6">For users who want AI help with content creation.</p>
                 </div>
 
@@ -915,7 +995,7 @@ const Homepage: React.FC = () => {
               <div className="flex flex-col h-full">
                 <div className="mb-6">
                   <h3 className="font-bold text-xl mb-2">Premium</h3>
-                  <p className="text-green-600 font-semibold mb-4">$14.99/month</p>
+                  <p className="text-green-600 font-semibold mb-4">$8.00/month</p>
                   <p className="text-sm text-gray-600 mb-6">For users who want a hands-free blogging experience.</p>
                 </div>
 
@@ -997,6 +1077,7 @@ const Homepage: React.FC = () => {
                   user={currentUser} 
                   onLogout={handleLogout} 
                   onUpgrade={() => setIsSubscriptionModalOpen(true)}
+                  userPlan={userPlan}
                 />
               ) : (
                 <div className="flex items-center space-x-3">
@@ -1288,7 +1369,11 @@ const Homepage: React.FC = () => {
                 <button
                   onClick={() => {
                     if (currentUser) {
-                      router.push('/autoform');
+                      if (userPlan === "basic") {
+                        setIsSubscriptionModalOpen(true);
+                      } else {
+                        router.push('/autoform');
+                      }
                     } else {
                       setBlogFunctionality("automated");
                       toggleLoginForm();

@@ -288,103 +288,6 @@ const BlogCard = ({ blog, setBlogs }: { blog: Blog; setBlogs: React.Dispatch<Rea
   const router = useRouter();
   const auth = getAuth();
 
-  const handleLike = async (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent navigation
-    if (!auth.currentUser) {
-      router.push('/login');
-      return;
-    }
-
-    try {
-      const blogRef = doc(firestoreDb, "blogs", blog.id);
-      const hasLiked = blog.likes.includes(auth.currentUser.uid);
-
-      if (hasLiked) {
-        await updateDoc(blogRef, {
-          likes: arrayRemove(auth.currentUser.uid)
-        });
-      } else {
-        await updateDoc(blogRef, {
-          likes: arrayUnion(auth.currentUser.uid)
-        });
-      }
-
-      // Update local state
-      setBlogs(prevBlogs =>
-        prevBlogs.map(b =>
-          b.id === blog.id
-            ? {
-                ...b,
-                likes: hasLiked
-                  ? b.likes.filter(id => id !== auth.currentUser?.uid)
-                  : auth.currentUser?.uid
-                    ? [...b.likes, auth.currentUser.uid]
-                    : b.likes
-              }
-            : b
-        )
-      );
-    } catch (error) {
-      console.error("Error updating like:", error);
-    }
-  };
-
-  const handleShare = async (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent navigation
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: blog.title,
-          text: blog.content.substring(0, 100),
-          url: `${window.location.origin}/blogfeed/${blog.id}`
-        });
-      } else {
-        await navigator.clipboard.writeText(
-          `${window.location.origin}/blogfeed/${blog.id}`
-        );
-        alert('Link copied to clipboard!');
-      }
-    } catch (error) {
-      console.error("Error sharing:", error);
-    }
-  };
-
-  const handleComment = async (text: string) => {
-    if (!auth.currentUser) {
-      router.push('/login');
-      return;
-    }
-  
-    try {
-      const newComment = {
-        id: crypto.randomUUID(),
-        userId: auth.currentUser.uid,
-        text: text,
-        createdAt: new Date(),
-        userDisplayName: auth.currentUser.displayName || 'Anonymous'
-      };
-  
-      const blogRef = doc(firestoreDb, "blogs", blog.id);
-      await updateDoc(blogRef, {
-        comments: arrayUnion(newComment)
-      });
-  
-      // Update local state to reflect new comment immediately
-      setBlogs(prevBlogs =>
-        prevBlogs.map(b =>
-          b.id === blog.id
-            ? {
-                ...b,
-                comments: [...(b.comments || []), newComment]
-              }
-            : b
-        )
-      );
-    } catch (error) {
-      console.error("Error adding comment:", error);
-    }
-  };
-
   // Simplify the getCommentsCount function
   const getCommentsCount = () => {
     return blog.comments?.length || 0;
@@ -428,50 +331,22 @@ const BlogCard = ({ blog, setBlogs }: { blog: Blog; setBlogs: React.Dispatch<Rea
         </p>
         <div className="flex items-center justify-between border-t pt-4">
           <div className="flex space-x-4">
-            {/* Like Button with real count */}
-            <motion.button
-              onClick={handleLike}
-              whileHover={{ scale: 1.1 }}
-              className={`flex items-center ${
-                auth.currentUser && blog.likes.includes(auth.currentUser.uid)
-                  ? 'text-green-600'
-                  : 'text-gray-500 hover:text-green-600'
-              } transition-colors cursor-pointer group`}
-            >
-              <FaThumbsUp className="mr-1 group-hover:scale-110 transition-transform" />
+            {/* Like Icon and Count (not clickable) */}
+            <span className="flex items-center text-gray-500">
+              <FaThumbsUp className="mr-1" />
               <span>{Array.isArray(blog.likes) ? blog.likes.length : 0}</span>
-            </motion.button>
-
-            {/* Comments Display with real-time updates */}
-            <motion.span
-              whileHover={{ scale: 1.1 }}
-              className="flex items-center text-gray-500 transition-colors cursor-pointer group"
-              onClick={(e) => {
-                e.preventDefault();
-                if (!auth.currentUser) {
-                  router.push('/login');
-                  return;
-                }
-                router.push(`/blogfeed/${blog.id}#comments`);
-              }}
-            >
-              <FaRegCommentDots className="mr-1 group-hover:scale-110 transition-transform" />
-              <span className="text-sm ml-1">
-                {Array.isArray(blog.comments) ? blog.comments.length : 0}
-              </span>
-            </motion.span>
-
-            {/* Share Button with real count */}
-            <motion.button
-              onClick={handleShare}
-              whileHover={{ scale: 1.1 }}
-              className="flex items-center text-gray-500 hover:text-green-600 transition-colors cursor-pointer group"
-            >
-              <FaShare className="mr-1 group-hover:scale-110 transition-transform" />
+            </span>
+            {/* Comment Icon and Count (not clickable) */}
+            <span className="flex items-center text-gray-500">
+              <FaRegCommentDots className="mr-1" />
+              <span>{Array.isArray(blog.comments) ? blog.comments.length : 0}</span>
+            </span>
+            {/* Save Icon and Count (not clickable, using FaShare as save icon) */}
+            <span className="flex items-center text-gray-500">
+              <FaShare className="mr-1" />
               <span>{Array.isArray(blog.shares) ? blog.shares.length : 0}</span>
-            </motion.button>
+            </span>
           </div>
-
           {/* Read More button remains the same */}
           <Link 
             href={`/blogfeed/${blog.id}`}

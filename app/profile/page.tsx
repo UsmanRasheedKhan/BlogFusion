@@ -6,13 +6,14 @@ import {
   reauthenticateWithCredential,
   updateProfile,
   updatePassword,
+  signOut,
 } from "firebase/auth";
 import { FaUser, FaEnvelope, FaLock, FaHome, FaBookmark } from "react-icons/fa";
 import Link from "next/link";
 import Swal from "sweetalert2";
 import SavedBlogs from "../components/SavedBlogs";
 import { motion } from "framer-motion";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/firebaseConfig";
 
 // Reusable BlogCard for My Blogs and Archived Blogs
@@ -83,6 +84,25 @@ const ProfilePage: React.FC = () => {
   const [currentPassword, setCurrentPassword] = useState<string>("");
   const [newPassword, setNewPassword] = useState<string>("");
   const [activeTab, setActiveTab] = useState<'profile' | 'saved' | 'myblogs' | 'archived'>("profile");
+  const [userPlan, setUserPlan] = useState<string>("basic");
+
+  useEffect(() => {
+    if (user) {
+      (async () => {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          setUserPlan(userData.plan || "basic");
+        }
+      })();
+    }
+  }, [user]);
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    window.location.href = "/login";
+  };
 
   const saveChanges = async () => {
     if (!formUsername) {
@@ -240,6 +260,21 @@ const ProfilePage: React.FC = () => {
             <div className="p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-8">Personal Information</h2>
               <div className="space-y-8">
+                {/* Display current plan and upgrade button if not premium */}
+                <div className="mb-8 flex items-center space-x-4">
+                  <span className="px-4 py-2 bg-gray-100 rounded-full text-green-700 font-semibold">
+                    Current Plan: {userPlan.charAt(0).toUpperCase() + userPlan.slice(1)}
+                  </span>
+                  {userPlan !== 'premium' && (
+                    <button
+                      className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                      onClick={() => window.location.href = '/?openSubscription=true'}
+                    >
+                      Upgrade Plan
+                    </button>
+                  )}
+                </div>
+
                 {/* Username Input */}
                 <motion.div 
                   className="space-y-2"
@@ -301,7 +336,7 @@ const ProfilePage: React.FC = () => {
 
                 {/* Save Button */}
                 <motion.div 
-                  className="flex justify-end pt-8"
+                  className="flex justify-between pt-8 items-center"
                   whileHover={{ scale: 1.02 }}
                 >
                   <button
@@ -322,6 +357,15 @@ const ProfilePage: React.FC = () => {
                         <span>Save Changes</span>
                       </>
                     )}
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all flex items-center space-x-2 shadow-lg shadow-red-500/20 ml-4"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1" />
+                    </svg>
+                    <span>Logout</span>
                   </button>
                 </motion.div>
               </div>

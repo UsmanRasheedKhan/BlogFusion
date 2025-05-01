@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import { db } from "../firebase/firebaseConfig";
-import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs, doc as firestoreDoc, getDoc as firestoreGetDoc } from "firebase/firestore";
 import { auth } from "../firebase/firebaseConfig";
 import { customSignOut } from "../firebase/firebaseConfig";
 import { useRouter } from "next/navigation";
@@ -60,10 +60,12 @@ const TextEditor = () => {
   const [user, setUser] = useState<any>(null); // State for authenticated user
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true); // State for sidebar visibility
   const [monthlyPostCount, setMonthlyPostCount] = useState<number>(0); // State for monthly post count
-  const [imageFile, setImageFile] = useState<File | null>(null); // State for image file
-  const [imageUrl, setImageUrl] = useState<string>(""); // State for uploaded image URL
   const [imageLink, setImageLink] = useState<string>(""); // State for image URL input
   const [imageError, setImageError] = useState<string>(""); // State for image error
+  const [userPlan, setUserPlan] = useState<string>("basic");
+  const [planExpiry, setPlanExpiry] = useState<any>(null);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
 
   const editorRef = useRef<HTMLDivElement | null>(null); // Ref for the Quill editor container
   const quillRef = useRef<Quill | null>(null); // Ref to hold the Quill instance
@@ -151,6 +153,21 @@ const TextEditor = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (user) {
+      const fetchPlan = async () => {
+        const userRef = firestoreDoc(db, "users", user.uid);
+        const userSnap = await firestoreGetDoc(userRef);
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          setUserPlan(data.plan || "basic");
+          setPlanExpiry(data.planExpiry || null);
+        }
+      };
+      fetchPlan();
+    }
+  }, [user]);
+
   // Function to check monthly post limit
   const checkMonthlyPostLimit = async (userId: string) => {
     try {
@@ -174,6 +191,22 @@ const TextEditor = () => {
       console.error('Error checking monthly post limit:', error);
       return 0;
     }
+  };
+
+  // Helper to count manual blogs for the user
+  const getManualBlogCount = async (userId: string) => {
+    const blogsRef = collection(db, "blogs");
+    const q = query(blogsRef, where("userId", "==", userId), where("type", "==", "manual"));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.size;
+  };
+
+  // Helper to count manual blogs for the user (for medium plan)
+  const getManualBlogCountMedium = async (userId: string) => {
+    const blogsRef = collection(db, "blogs");
+    const q = query(blogsRef, where("userId", "==", userId), where("type", "==", "manual"));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.size;
   };
 
   // Add proper type for validation result
@@ -285,12 +318,12 @@ const TextEditor = () => {
       };
     }
 
-    if (!imageFile && !imageLink) {
+    if (!imageLink) {
       return {
         isValid: false,
         error: {
           title: 'Image Required',
-          text: 'Please upload an image or provide a direct image URL.',
+          text: 'Please provide a direct image URL.',
           icon: 'warning'
         }
       };
@@ -301,7 +334,7 @@ const TextEditor = () => {
         isValid: false,
         error: {
           title: 'Invalid Image URL',
-          text: 'Please provide a valid direct image URL (must end with .jpg, .png, etc.)',
+          text: 'Please provide a valid image URL (must start with http/https)',
           icon: 'warning'
         }
       };
@@ -316,6 +349,44 @@ const TextEditor = () => {
       // Check authentication
       if (!user) {
         throw new Error('You must be logged in to save a blog post.');
+      }
+
+      // PLAN CHECK & LIMIT ENFORCEMENT
+      if (userPlan === 'basic') {
+        // Fetch publishedBlogs from Firestore user profile
+        const userRef = firestoreDoc(db, 'users', user.uid);
+        const userSnap = await firestoreGetDoc(userRef);
+        let publishedBlogs = 0;
+        if (userSnap.exists()) {
+          publishedBlogs = userSnap.data().publishedBlogs || 0;
+        }
+        if (publishedBlogs >= 3) {
+          setShowLimitModal(true);
+          return;
+        }
+      } else if (userPlan === 'medium') {
+        const manualCount = await getManualBlogCountMedium(user.uid);
+        if (manualCount >= 5) {
+          setShowLimitModal(true);
+          return;
+        }
+      }
+
+      // PLAN EXPIRY CHECK (for paid plans only)
+      const now = new Date();
+      let expired = false;
+      if (userPlan !== 'basic' && planExpiry) {
+        expired = new Date(planExpiry) < now;
+        if (expired) {
+          await Swal.fire({
+            title: 'Plan Expired',
+            text: 'Your subscription has expired. Please upgrade to continue publishing blogs.',
+            icon: 'warning',
+            confirmButtonText: 'Upgrade Now',
+            confirmButtonColor: '#22c55e',
+          });
+          return;
+        }
       }
 
       // Validate the blog post
@@ -344,16 +415,7 @@ const TextEditor = () => {
       // Get the content directly from Quill
       const content = quillRef.current?.root.innerHTML || '';
 
-      let finalImageUrl = "";
-      if (imageFile) {
-        const imgRef = storageRef(storage, `blog-images/${Date.now()}_${imageFile.name}`);
-        await uploadBytes(imgRef, imageFile);
-        finalImageUrl = await getDownloadURL(imgRef);
-        setImageUrl(finalImageUrl);
-      } else if (imageLink) {
-        finalImageUrl = imageLink;
-        setImageUrl(imageLink);
-      }
+      let finalImageUrl = imageLink;
 
       // Save to Firestore with all fields
       const docRef = await addDoc(collection(db, "blogs"), {
@@ -369,6 +431,19 @@ const TextEditor = () => {
         coverImage: finalImageUrl,
         type: 'manual', // <-- Add this line
       });
+
+      // Increment publishedBlogs for basic plan
+      if (userPlan === 'basic') {
+        const userRef = firestoreDoc(db, 'users', user.uid);
+        const userSnap = await firestoreGetDoc(userRef);
+        let publishedBlogs = 0;
+        if (userSnap.exists()) {
+          publishedBlogs = userSnap.data().publishedBlogs || 0;
+        }
+        await import('firebase/firestore').then(({ updateDoc }) =>
+          updateDoc(userRef, { publishedBlogs: publishedBlogs + 1 })
+        );
+      }
 
       // Show success message
       await Swal.fire({
@@ -406,9 +481,7 @@ const TextEditor = () => {
     setTitle('');
     setMetaDescription('');
     setCategory('');
-    setImageFile(null);
     setImageLink('');
-    setImageUrl('');
     setImageError('');
     if (quillRef.current) {
       quillRef.current.root.innerHTML = '';
@@ -431,27 +504,15 @@ const TextEditor = () => {
     }
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setImageFile(e.target.files[0]);
-      setImageLink("");
-      setImageError("");
-    }
-  };
-
   const handleImageLinkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setImageLink(e.target.value);
-    if (e.target.value) setImageFile(null);
     setImageError("");
   };
 
   const isValidImageUrl = (url: string) => {
     try {
       const parsed = new URL(url);
-      return (
-        (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
-        /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(parsed.pathname)
-      );
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
     } catch {
       return false;
     }
@@ -560,33 +621,23 @@ const TextEditor = () => {
           <div className="bg-white rounded-xl shadow-sm p-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-8">Create New Blog</h1>
 
-            {/* Blog Image Upload/URL */}
+            {/* Blog Image URL */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Blog Cover Image <span className="text-red-500">*</span>
               </label>
               <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all mb-2"
-                disabled={!!imageLink}
+                type="url"
+                value={imageLink}
+                onChange={handleImageLinkChange}
+                placeholder="Paste any direct image URL (must start with http/https)"
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                required
               />
-              <div className="flex items-center gap-4 mb-2">
-                <span className="text-gray-500 text-sm">or</span>
-                <input
-                  type="url"
-                  value={imageLink}
-                  onChange={handleImageLinkChange}
-                  placeholder="Paste direct image URL (https://...)"
-                  className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
-                  disabled={!!imageFile}
-                />
-              </div>
-              {(imageFile || imageLink) && (
+              {imageLink && (
                 <div className="mt-2">
                   <img
-                    src={imageFile ? URL.createObjectURL(imageFile) : imageLink}
+                    src={imageLink}
                     alt="Preview"
                     className="h-32 rounded-lg object-cover border"
                     onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -684,6 +735,52 @@ const TextEditor = () => {
           className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
           onClick={toggleSidebar}
         />
+      )}
+
+      {/* Add modals for limit and subscription */}
+      {showLimitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full text-center">
+            <h2 className="text-xl font-bold mb-4">Posting Limit Reached</h2>
+            <p className="mb-6">
+              {userPlan === 'basic' && 'You have reached your posting limit for the Basic plan please upgrade plan in your profile.'}
+              {userPlan === 'medium' && 'You have reached your posting limit for the Medium plan please upgrade plan in your profile.'}
+            </p>
+            <div className="flex justify-center gap-4">
+              <button
+                className="bg-gray-300 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-400 transition-colors mb-2"
+                onClick={() => setShowLimitModal(false)}
+              >
+                Ok
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showSubscriptionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full text-center">
+            <h2 className="text-xl font-bold mb-4">Upgrade Your Plan</h2>
+            <p className="mb-6">Choose a paid plan to unlock unlimited blog publishing and more features.</p>
+            {/* Subscription options/buttons here */}
+            <button
+              className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+              onClick={() => {
+                // Simulate successful subscription and redirect
+                setUserPlan('premium');
+                setShowSubscriptionModal(false);
+                Swal.fire({
+                  title: 'Subscription Successful!',
+                  text: 'You can now publish unlimited blogs.',
+                  icon: 'success',
+                  confirmButtonColor: '#22c55e',
+                });
+              }}
+            >
+              Subscribe & Continue
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

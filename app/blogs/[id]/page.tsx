@@ -56,6 +56,8 @@ interface BlogPost {
     createdAt: any;
     userDisplayName: string;
   }[];
+  keywords?: string[];
+  urls?: string[];
 }
 
 const Navbar = ({ user, onLogout }: { user: any; onLogout: () => void }) => {
@@ -201,6 +203,22 @@ const Navbar = ({ user, onLogout }: { user: any; onLogout: () => void }) => {
     </AppBar>
   );
 };
+
+// Add a helper to embed keyword links
+function embedKeywordLinks(content: string, keywords: string[] = [], urls: string[] = []) {
+  if (!keywords.length || !urls.length) return content;
+  let processed = content;
+  keywords.forEach((keyword, idx) => {
+    if (keyword && urls[idx]) {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+      processed = processed.replace(
+        regex,
+        `<a href="${urls[idx]}" target="_blank" rel="noopener noreferrer">${keyword}</a>`
+      );
+    }
+  });
+  return processed;
+}
 
 export default function BlogDetailPage() {
   const params = useParams();
@@ -410,7 +428,7 @@ export default function BlogDetailPage() {
                     my: 2,
                   },
                 }}
-                dangerouslySetInnerHTML={{ __html: blog.content }}
+                dangerouslySetInnerHTML={{ __html: embedKeywordLinks(blog.content, blog.keywords, blog.urls) }}
               />
 
               <Box

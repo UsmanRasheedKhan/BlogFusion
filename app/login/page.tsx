@@ -11,7 +11,8 @@ import {
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FaGoogle } from "react-icons/fa";
-import { auth, googleAuthProvider } from "../firebase/firebaseConfig";
+import { auth, googleAuthProvider, db } from "../firebase/firebaseConfig";
+import { setDoc, doc } from "firebase/firestore";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -76,6 +77,14 @@ const Login = () => {
       if (signupName) {
         await updateProfile(userCredential.user, { displayName: signupName });
       }
+      // Store plan info in Firestore
+      await setDoc(doc(db, "users", userCredential.user.uid), {
+        name: signupName,
+        email: signupEmail,
+        createdAt: new Date(),
+        plan: "basic",
+        planExpiry: null
+      });
       setSignupError("");
       setSignupLoading(false);
       setActiveTab('login');

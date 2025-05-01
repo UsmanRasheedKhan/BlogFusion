@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import RouteLoader from './components/RouteLoader';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,6 +18,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-secondary-50 text-secondary-800 antialiased">
+        <RouteLoader />
         {children}
       </body>
     </html>
