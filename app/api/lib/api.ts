@@ -13,6 +13,11 @@ interface GenerateBlogInput {
   title: string;
   keywords: string;
   urls: string;
+  country: string;
+  audience: string;
+  category: string;
+  userId: string;
+  plan: string;
 }
 
 interface GenerateBlogOutput {
@@ -23,7 +28,7 @@ interface GenerateBlogOutput {
 
 // Assuming you're using Axios for API calls
 
-export const generateBlog = async (data: GenerateBlogInput): Promise<GenerateBlogOutput> => {
+export const generateBlog = async (data: GenerateBlogInput): Promise<GenerateBlogOutput | { limitReached: true }> => {
     try {
       // Making the API request
       const response = await api.post('/api/generate-blog', data);
@@ -40,6 +45,12 @@ export const generateBlog = async (data: GenerateBlogInput): Promise<GenerateBlo
         urls: data.urls.split(',').map((u) => u.trim()),
       };
     } catch (error: any) {
+      // Check for plan limit error
+      if (error.response && error.response.status === 403 && error.response.data?.error === 'limit_reached') {
+        // Instead of throwing, return a special object
+        return { limitReached: true };
+      }
+
       // Define a default error message
       let message = 'An unexpected error occurred';
   
@@ -57,4 +68,3 @@ export const generateBlog = async (data: GenerateBlogInput): Promise<GenerateBlo
       throw new Error(message);
     }
   };
-  

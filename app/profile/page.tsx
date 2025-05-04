@@ -1,13 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { auth } from "../firebase/firebaseConfig";
-import {
-  EmailAuthProvider,
-  reauthenticateWithCredential,
-  updateProfile,
-  updatePassword,
-  signOut,
-} from "firebase/auth";
+import { onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential, updateProfile, updatePassword, signOut, User } from "firebase/auth";
 import { FaUser, FaEnvelope, FaLock, FaHome, FaBookmark } from "react-icons/fa";
 import Link from "next/link";
 import Swal from "sweetalert2";
@@ -77,14 +71,23 @@ const ArchivedBlogs = ({ userId }: { userId: string }) => {
 };
 
 const ProfilePage: React.FC = () => {
-  const user = auth.currentUser;
+  const [user, setUser] = useState<User | null>(auth.currentUser);
   const [isLoading, setIsLoading] = useState(false);
-  const [currentUsername, setCurrentUsername] = useState<string>(user?.displayName || ""); // For display
-  const [formUsername, setFormUsername] = useState<string>(user?.displayName || ""); // For form input
+  const [currentUsername, setCurrentUsername] = useState<string>("");
+  const [formUsername, setFormUsername] = useState<string>("");
   const [currentPassword, setCurrentPassword] = useState<string>("");
   const [newPassword, setNewPassword] = useState<string>("");
   const [activeTab, setActiveTab] = useState<'profile' | 'saved' | 'myblogs' | 'archived'>("profile");
   const [userPlan, setUserPlan] = useState<string>("basic");
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setCurrentUsername(firebaseUser?.displayName || "");
+      setFormUsername(firebaseUser?.displayName || "");
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -375,10 +378,10 @@ const ProfilePage: React.FC = () => {
             <div className="p-8"><SavedBlogs /></div>
           )}
           {activeTab === "myblogs" && (
-            <div className="p-8"><MyBlogs userId={user?.uid} /></div>
+            <div className="p-8"><MyBlogs userId={user?.uid || ""} /></div>
           )}
           {activeTab === "archived" && (
-            <div className="p-8"><ArchivedBlogs userId={user?.uid} /></div>
+            <div className="p-8"><ArchivedBlogs userId={user?.uid || ""} /></div>
           )}
         </motion.div>
       </div>

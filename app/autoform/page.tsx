@@ -40,6 +40,7 @@ const FormPage: React.FC = () => {
   const [category, setCategory] = useState<string>("");
   const [userPlan, setUserPlan] = useState<string>('basic');
   const [planExpiry, setPlanExpiry] = useState<any>(null);
+  const [fieldErrors, setFieldErrors] = useState<{[key: string]: boolean}>({});
   const router = useRouter();
 
   const countries = ['USA', 'Canada', 'UK', 'Australia', 'Germany', 'France', 'India', 'China', 'Japan', 'Pakistan'];
@@ -95,6 +96,22 @@ const FormPage: React.FC = () => {
     setProgress(0);
     setProgressText(progressSteps[0].text);
 
+    // Field validation for highlighting
+    const errors: {[key: string]: boolean} = {};
+    if (!formData.topic) errors.topic = true;
+    if (!formData.country) errors.country = true;
+    if (!formData.audience) errors.audience = true;
+    if (!formData.keywords) errors.keywords = true;
+    if (!formData.urls) errors.urls = true;
+    if (!category) errors.category = true;
+    if (!imageLink) errors.imageLink = true;
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setError("Please fill in all required fields.");
+      setLoading(false);
+      return;
+    }
+
     // PLAN CHECK
     const now = new Date();
     let expired = false;
@@ -143,10 +160,32 @@ const FormPage: React.FC = () => {
 
       setProgress(progressSteps[2].percent);
       setProgressText(progressSteps[2].text);
+      // Only send required fields to backend (exclude imageLink)
       const response = await generateBlog({
         ...formData,
-        title: formData.topic
+        title: formData.topic,
+        category,
+        userId: user?.uid,
+        plan: userPlan
       });
+
+      // Handle plan limit reached gracefully
+      if ((response as any).limitReached) {
+        clearInterval(progressInterval);
+        setLoading(false);
+        await Swal.fire({
+          title: 'Medium Plan Limit Reached',
+          text: 'You have reached your monthly blog generation limit for the Medium plan. Upgrade to Premium for unlimited access.',
+          icon: 'warning',
+          confirmButtonText: 'Upgrade to Premium',
+          confirmButtonColor: '#22c55e',
+        }).then((result) => {
+          if (result.isConfirmed) {
+            router.push('/profile?upgrade=true');
+          }
+        });
+        return;
+      }
 
       setProgress(progressSteps[3].percent);
       setProgressText(progressSteps[3].text);
@@ -180,9 +219,24 @@ const FormPage: React.FC = () => {
       setLoading(false);
       setProgress(0);
       setProgressText('');
-      const errorMessage = err.message.includes('timeout')
+      // SweetAlert for Medium Plan Limit Reached
+      if (err?.response?.status === 403 && err?.response?.data?.error === 'limit_reached') {
+        await Swal.fire({
+          title: 'Medium Plan Limit Reached',
+          text: 'You have reached your monthly blog generation limit for the Medium plan. Upgrade to Premium for unlimited access.',
+          icon: 'warning',
+          confirmButtonText: 'Upgrade to Premium',
+          confirmButtonColor: '#22c55e',
+        }).then((result) => {
+          if (result.isConfirmed) {
+            router.push('/profile?upgrade=true');
+          }
+        });
+        return;
+      }
+      const errorMessage = err.message && err.message.includes('timeout')
         ? 'Generation is taking longer than expected. Please try again.'
-        : err.message;
+        : err.message || 'An error occurred. Please try again.';
       setError(errorMessage);
     }
   };
@@ -270,7 +324,7 @@ const FormPage: React.FC = () => {
                     type="text"
                     value={formData.topic}
                     onChange={e => setFormData({ ...formData, topic: e.target.value })}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    className={`w-full px-4 py-3 rounded-lg border ${fieldErrors.topic ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                     required
                     placeholder="Enter blog topic"
                   />
@@ -280,7 +334,7 @@ const FormPage: React.FC = () => {
                   <select
                     value={formData.country}
                     onChange={e => setFormData({ ...formData, country: e.target.value })}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    className={`w-full px-4 py-3 rounded-lg border ${fieldErrors.country ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                     required
                   >
                     <option value="">Select country</option>
@@ -295,7 +349,7 @@ const FormPage: React.FC = () => {
                     type="text"
                     value={formData.audience}
                     onChange={e => setFormData({ ...formData, audience: e.target.value })}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    className={`w-full px-4 py-3 rounded-lg border ${fieldErrors.audience ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                     required
                     placeholder="Intended audience"
                   />
@@ -306,7 +360,7 @@ const FormPage: React.FC = () => {
                     type="text"
                     value={formData.keywords}
                     onChange={e => setFormData({ ...formData, keywords: e.target.value })}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    className={`w-full px-4 py-3 rounded-lg border ${fieldErrors.keywords ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                     required
                     placeholder="e.g. AI, blogging, SEO"
                   />
@@ -317,7 +371,7 @@ const FormPage: React.FC = () => {
                     type="text"
                     value={formData.urls}
                     onChange={e => setFormData({ ...formData, urls: e.target.value })}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    className={`w-full px-4 py-3 rounded-lg border ${fieldErrors.urls ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                     required
                     placeholder="e.g. https://example.com, https://another.com"
                   />
@@ -327,7 +381,7 @@ const FormPage: React.FC = () => {
                   <select
                     value={category}
                     onChange={e => setCategory(e.target.value)}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    className={`w-full px-4 py-3 rounded-lg border ${fieldErrors.category ? 'border-red-500' : 'border-gray-200'} focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                     required
                   >
                     <option value="">Select category</option>
@@ -343,7 +397,7 @@ const FormPage: React.FC = () => {
                     value={imageLink}
                     onChange={e => setImageLink(e.target.value)}
                     placeholder="Paste any direct image URL (must start with http/https)"
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    className={`w-full px-4 py-2 border ${fieldErrors.imageLink ? 'border-red-500' : 'border-gray-200'} rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                     required
                   />
                   {imageLink && (

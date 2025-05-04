@@ -365,8 +365,14 @@ const TextEditor = () => {
           return;
         }
       } else if (userPlan === 'medium') {
-        const manualCount = await getManualBlogCountMedium(user.uid);
-        if (manualCount >= 5) {
+        // Fetch publishedBlogs from Firestore user profile for medium plan
+        const userRef = firestoreDoc(db, 'users', user.uid);
+        const userSnap = await firestoreGetDoc(userRef);
+        let publishedBlogs = 0;
+        if (userSnap.exists()) {
+          publishedBlogs = userSnap.data().publishedBlogs || 0;
+        }
+        if (publishedBlogs >= 5) {
           setShowLimitModal(true);
           return;
         }
@@ -433,7 +439,7 @@ const TextEditor = () => {
       });
 
       // Increment publishedBlogs for basic plan
-      if (userPlan === 'basic') {
+      if (userPlan === 'basic' || userPlan === 'medium' || userPlan === 'premium') {
         const userRef = firestoreDoc(db, 'users', user.uid);
         const userSnap = await firestoreGetDoc(userRef);
         let publishedBlogs = 0;
@@ -743,15 +749,18 @@ const TextEditor = () => {
           <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full text-center">
             <h2 className="text-xl font-bold mb-4">Posting Limit Reached</h2>
             <p className="mb-6">
-              {userPlan === 'basic' && 'You have reached your posting limit for the Basic plan please upgrade plan in your profile.'}
-              {userPlan === 'medium' && 'You have reached your posting limit for the Medium plan please upgrade plan in your profile.'}
+              {userPlan === 'basic' && 'You have reached your posting limit for the Basic plan. Please upgrade your plan in your profile.'}
+              {userPlan === 'medium' && 'You have reached your manual blog posting limit for the Medium plan. Please upgrade to Premium in your profile to publish more blogs.'}
             </p>
             <div className="flex justify-center gap-4">
               <button
-                className="bg-gray-300 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-400 transition-colors mb-2"
-                onClick={() => setShowLimitModal(false)}
+                className="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition-colors mb-2"
+                onClick={() => {
+                  setShowLimitModal(false);
+                  router.push('/profile');
+                }}
               >
-                Ok
+                Upgrade to Premium
               </button>
             </div>
           </div>

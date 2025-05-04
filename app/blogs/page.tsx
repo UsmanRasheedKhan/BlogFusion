@@ -101,16 +101,6 @@ const Blogs = () => {
     router.push(`/blogs/${id}`);
   };
 
-  const handleHomeClick = () => {
-    if (user) {
-      // Redirect to the text editor if the user is logged in
-      router.push("/text-editor");
-    } else {
-      // Redirect to login page if the user is not logged in
-      router.push("/login");
-    }
-  };
-
   const handleLike = async (blogId: string) => {
     if (!user) {
       router.push('/login');
@@ -251,7 +241,7 @@ const Blogs = () => {
             {/* Navigation Links */}
             <div className="hidden md:flex items-center space-x-8">
               <button 
-                onClick={handleHomeClick} 
+                onClick={() => router.push("/")}
                 className="text-gray-600 hover:text-green-600 transition-colors"
               >
                 Home
